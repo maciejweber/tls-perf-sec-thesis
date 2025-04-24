@@ -1,0 +1,13 @@
+services:
+  nginx-tls:
+    build: ./docker/nginx-oqs
+    container_name: tls-perf-nginx
+    ports:
+      - "4431:4431"
+      - "4432:4432"
+      - "4433:4433"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+      - ./docker/nginx-oqs/conf.d:/etc/nginx/conf.d:ro
+    environment:
+      - TZ=Europe/Warsaw
