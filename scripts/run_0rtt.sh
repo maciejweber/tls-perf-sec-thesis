@@ -1,32 +1,40 @@
 #!/usr/bin/env bash
-# ------------------------------------------------------------
-# run_0rtt.sh — zysk z 0-RTT (time_starttransfer)
-# ------------------------------------------------------------
-# Co mierzymy i dlaczego:
-#   • curl --http2-prior-knowledge  — pomija ALPN
-#   • porównujemy z i bez  --tls13-early-data
-# ------------------------------------------------------------
-need=(curl jq openssl)
 
-for bin in openssl jq wrk2; do
-  command -v $bin >/dev/null || { echo "❌ $bin not found"; exit 1; }
-done
+echo "==== Prosty test wydajności TLS ===="
+mkdir -p results
 
-set -euo pipefail
-HOST="${1-localhost}"
-PORT="${2-4431}"
+HOST="host.docker.internal"
 
-curl_base=(curl -k --http2-prior-knowledge -o /dev/null -s -w '%{time_starttransfer}\n')
-base=$("${curl_base[@]}" "https://${HOST}:${PORT}/")
+test_port() {
+  local port=$1
+  local desc=$2
+  local count=5
+  
+  echo "Testowanie $desc (port $port)..."
+  
+  total=0
+  for i in $(seq 1 $count); do
+    echo -n "  Test $i: "
+    start=$(date +%s.%N)
+    curl -k "https://${HOST}:${port}/" -o /dev/null -s
+    end=$(date +%s.%N)
+    time=$(echo "$end - $start" | bc)
+    echo "${time}s"
+    total=$(echo "$total + $time" | bc)
+  done
+  
+  avg=$(echo "scale=6; $total / $count" | bc)
+  echo "Średni czas dla $desc: ${avg}s"
+  
+  echo "{\"config\": \"$desc\", \"avg_time\": $avg}" > "results/simple_${port}.json"
+  
+  return 0
+}
 
-# wymuszamy resumption: jedno żądanie „rozgrzewające”
-curl -k --http2-prior-knowledge -o /dev/null -s "https://${HOST}:${PORT}/"
 
-early=$("${curl_base[@]/curl/curl --tls13-early-data @/dev/null}" \
-        "https://${HOST}:${PORT}/")
+test_port 4431 "AES-GCM z ECDSA P-256" && echo ""
+test_port 4432 "ChaCha20-Poly1305 z ECDSA P-256" && echo ""
+test_port 4433 "AES-256-GCM z Ed25519" && echo ""
 
-jq -n --arg base "$base" --arg early "$early" '
-  {t_full_ms:($base|tonumber*1000)|round,
-   t_0rtt_ms:($early|tonumber*1000)|round,
-   gain_ms:(($base|tonumber-$early|tonumber)*1000)|round}' \
-  | tee "results/0rtt_${PORT}.json"
+echo "Testy zakończone. Wyniki zapisane w katalogu results/"
+

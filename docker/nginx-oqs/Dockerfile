@@ -1,15 +1,11 @@
-###############################################################################
 # Dockerfile — Nginx 1.25  +  OpenSSL 3.3.3  +  liboqs/oqs-provider (HEAD)
-###############################################################################
 ARG OPENSSL_VER=3.3.3
 ARG NGINX_VER=1.25.5
-###############################################################################
 
-########################### 1️⃣  builder ###########################
 FROM alpine:3.19 AS builder
 ARG OPENSSL_VER
 ARG NGINX_VER
-# ──────────────────────────────────────────────────────────────────
+
 RUN apk add --no-cache \
       build-base perl linux-headers git cmake ninja curl \
       pcre2-dev zlib-dev
@@ -28,7 +24,7 @@ ENV PATH="/usr/local/ssl/bin:${PATH}" \
     OPENSSL_ROOT_DIR="/usr/local/ssl" \
     LD_LIBRARY_PATH="/usr/local/ssl/lib"
 
-# 2. liboqs (HEAD → ma ML-DSA/KEM itd.)
+# 2. liboqs
 RUN git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git && \
     cmake -S liboqs -B liboqs/build -GNinja \
           -DBUILD_SHARED_LIBS=ON \
@@ -36,7 +32,7 @@ RUN git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git && \
           -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR} && \
     cmake --build liboqs/build --target install
 
-# 3. oqs-provider (HEAD)
+# 3. oqs-provider
 RUN git clone --depth 1 https://github.com/open-quantum-safe/oqs-provider.git && \
     cmake -S oqs-provider -B oqs-provider/build -GNinja \
           -DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR} \
@@ -56,7 +52,6 @@ RUN sed -i '/http {/a \
     include /etc/nginx/conf.d/*.conf;\n' /etc/nginx/conf/nginx.conf
 
 
-########################### 2️⃣  runtime ###########################
 FROM alpine:3.19
 RUN apk add --no-cache tzdata pcre2 zlib
 COPY --from=builder /etc/nginx      /etc/nginx
