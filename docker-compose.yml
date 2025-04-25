@@ -1,11 +1,13 @@
+version: "3.9"
+
 services:
   nginx-tls:
     build: ./docker/nginx-oqs
     container_name: tls-perf-nginx
     ports:
-      - "4431:4431"
-      - "4432:4432"
-      - "4433:4433"
+      - "4431:4431" # AES-GCM
+      - "4432:4432" # ChaCha20-Poly1305
+      - "4433:4433" # Ed25519 z AES-256-GCM
     volumes:
       - ./certs:/etc/nginx/certs:ro
       - ./docker/nginx-oqs/conf.d:/etc/nginx/conf.d:ro

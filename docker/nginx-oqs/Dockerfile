@@ -19,9 +19,7 @@ WORKDIR /build
 RUN curl -sSL https://www.openssl.org/source/openssl-${OPENSSL_VER}.tar.gz \
     | tar -xz && cd openssl-${OPENSSL_VER} && \
     ./config shared --prefix=/usr/local/ssl --openssldir=/usr/local/ssl \
-                    enable-tls1_3 \
-                    enable-kems \   
-                    enable-kem-hybrid && \ 
+                    enable-tls1_3 && \
     make -j$(nproc) && make install_sw
 
 RUN ln -s /usr/local/ssl/lib64 /usr/local/ssl/lib

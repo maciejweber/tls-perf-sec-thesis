@@ -8,8 +8,8 @@ default      = default_sect
 oqsprovider  = oqs_sect
 
 [default_sect]
-activate = 1         # ← klasyczny provider
+activate = 1
 
 [oqs_sect]
 module   = /usr/local/ssl/lib/ossl-modules/oqsprovider.so
-activate = 1         # ← aktywuj OQS
+activate = 1
