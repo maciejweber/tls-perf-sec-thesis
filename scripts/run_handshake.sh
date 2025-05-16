@@ -1,60 +1,55 @@
+
 #!/usr/bin/env bash
 
 echo "==== Test wydajności handshake TLS ===="
 
-HOST="host.docker.internal"
-PORT="${1-4431}"
-REPS=5
+HOST="localhost"  
+PORTS=(4431 4432 4433)  
+TEST_TIME=15  
+OUTPUT_DIR="results"
 
-echo "Testowanie ${HOST}:${PORT} (${REPS} powtórzeń)"
-echo "Wymuszanie pełnego handshake (bez session resumption)"
+mkdir -p $OUTPUT_DIR
 
-mkdir -p results
-
-vals=()
-echo "Uruchamianie testów..."
-
-for ((i=1;i<=REPS;i++)); do
-  echo -n "Test $i: "
+for PORT in "${PORTS[@]}"; do
+  echo ""
+  echo "Testowanie ${HOST}:${PORT} (${TEST_TIME} sekund)"
+  echo "Wymuszanie pełnego handshake (bez session resumption)"
   
-  start=$(date +%s.%N)
-  docker run --rm curlimages/curl:latest -k --no-sessionid "https://${HOST}:${PORT}/" -o /dev/null -s
-  end=$(date +%s.%N)
   
-  dur=$(echo "$end - $start" | bc)
-  ms=$(echo "$dur * 1000" | bc)
+  result=$(openssl s_time -connect ${HOST}:${PORT} -new -time ${TEST_TIME} 2>&1)
   
-  adjusted_ms=$(echo "$ms - 1000" | bc)
+  if [[ $? -ne 0 ]]; then
+    echo "Błąd podczas wykonywania testu dla portu ${PORT}:"
+    echo "$result"
+    continue
+  fi
   
-  vals+=("$adjusted_ms")
-  echo "${adjusted_ms}ms (całkowity czas: ${ms}ms)"
+  
+  total_connections=$(echo "$result" | grep "Processed" | awk '{print $2}')
+  total_time=$(echo "$result" | grep "Processed" | awk '{print $5}')
+  connections_per_sec=$(echo "$result" | grep "Processed" | awk '{print $8}')
+  
+  
+  if [[ -n "$total_connections" && -n "$total_time" && "$total_connections" -gt 0 ]]; then
+    mean_ms=$(echo "scale=4; 1000 * $total_time / $total_connections" | bc)
+  else
+    mean_ms="N/A"
+    echo "Nie udało się obliczyć średniego czasu handshake."
+  fi
+  
+  echo ""
+  echo "Wyniki dla ${HOST}:${PORT}:"
+  echo "* Liczba przeprowadzonych handshake'ów: $total_connections"
+  echo "* Czas testu: $total_time s"
+  echo "* Handshake'ów na sekundę: $connections_per_sec"
+  echo "* Średni czas handshake: ${mean_ms} ms"
+  
+  
+  echo "{\"port\": $PORT, \"mean_ms\": $mean_ms, \"total_connections\": $total_connections, \"connections_per_sec\": $connections_per_sec, \"test_time_s\": $total_time}" \
+    > "${OUTPUT_DIR}/handshake_${PORT}.json"
+  
+  echo "Wyniki zapisane w ${OUTPUT_DIR}/handshake_${PORT}.json"
 done
-
-sum=0
-for v in "${vals[@]}"; do 
-  sum=$(echo "$sum + $v" | bc)
-done
-
-mean=$(echo "scale=4; $sum / ${#vals[@]}" | bc)
-
-ss=0
-for v in "${vals[@]}"; do 
-  diff=$(echo "$v - $mean" | bc)
-  sq=$(echo "$diff * $diff" | bc)
-  ss=$(echo "$ss + $sq" | bc)
-done
-
-std=$(echo "scale=4; sqrt($ss / (${#vals[@]} - 1))" | bc 2>/dev/null || echo "0")
 
 echo ""
-echo "Wyniki dla ${HOST}:${PORT}:"
-echo "* Średni czas handshake TLS: ${mean}ms"
-echo "* Odchylenie standardowe: ${std}ms"
-echo "* Pomiary (ms): ${vals[*]}"
-
-measurements=$(IFS=,; echo "${vals[*]}")
-echo "{\"mean_ms\": $mean, \"std_ms\": $std, \"measurements\": [$measurements]}" \
-  | tee "results/handshake_${PORT}.json"
-
-echo ""
-echo "Test zakończony. Wyniki zapisane w results/handshake_${PORT}.json"
+echo "Wszystkie testy zakończone."
