@@ -1,77 +1,70 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-sudo -v
+sudo -v                                       # jedno pyt. o hasło na sesję
 
 IMPLEMENTATIONS=(openssl boringssl wolfssl)
-SUITES=(x25519_aesgcm chacha20 kyber_hybrid)
+SUITES=(x25519_aesgcm chacha20)               # bez kyber_hybrid
 TESTS=(handshake bulk 0rtt)
-ITERATIONS=30
+ITERATIONS=1                                  # zostaw 1 — ~2 min testu
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CSV="${ROOT_DIR}/results/bench_$(date +%F).csv"
-mkdir -p "$(dirname "$CSV")"
+OUTDIR="${ROOT_DIR}/results"
+CSV="${OUTDIR}/bench_$(date +%F).csv"
+mkdir -p "$OUTDIR"
 [[ -f "$CSV" ]] || echo "implementation,suite,test,run,metric,value,unit" >"$CSV"
 
-measure_cmd() {
-  case "$1" in
-    x25519_aesgcm) echo "openssl speed -evp aes-128-gcm" ;;
-    chacha20) echo "openssl speed -evp chacha20-poly1305" ;;
-    kyber_hybrid) echo "openssl speed -evp aes-256-gcm" ;;
-    *) echo "openssl speed aes" ;;
-  esac
+# mapa suite → port
+port() { [[ $1 == x25519_aesgcm ]] && echo 4431 || echo 4432; }
+
+# jednostki
+unit() {
+  case "$1" in mean_ms) echo ms;; mean_time_s) echo s;; rps) echo 1/s;; *) echo -;; esac
 }
 
-guess_unit() {
-  case "$1" in
-    *ms) echo "ms" ;;
-    *_s|*time|*seconds) echo "s" ;;
-    *watt*|*Watts*) echo "W" ;;
-    *cycles) echo "cycles" ;;
-    *bytes*|*_B) echo "bytes" ;;
-    *) echo "-" ;;
-  esac
+# konwersja JSON → wiersze CSV
+pairs() {
+  jq -Mr '
+    to_entries
+    | map(
+        if .key|test("avg_(request_)?time")      then {k:"mean_time_s",v:.value}
+        elif .key=="requests_per_second"        then {k:"rps",v:.value}
+        elif .key|test("^(host|port|config|successful_|total_)") then empty
+        else {k:.key,v:.value} end
+      ) | .[] | "\(.k) \(.v)"
+  ' "$1"
 }
-
-progress() { printf "\r%-60s" "$*"; }
 
 run_single() {
-  local impl="$1" suite="$2" test="$3" run="$4"
-  progress "[${impl}/${suite}/${test}] ${run}/${ITERATIONS}"
-  env IMPLEMENTATION="$impl" SUITE="$suite" "${ROOT_DIR}/scripts/run_${test}.sh" >/dev/null 2>&1 || true
-  local tmp
-  tmp="$("${ROOT_DIR}/scripts/measure_resources.sh" "$(measure_cmd "$suite")" | awk '/metrics saved to/ {print $NF}')"
-  [[ -f "$tmp" ]] || { echo -e "\nmissing metrics for $impl/$suite/$test"; return; }
-  jq -r 'to_entries[] | "\(.key) \(.value)"' "$tmp" | while read -r metric value; do
-    echo "${impl},${suite},${test},${run},${metric},${value},$(guess_unit "$metric")" >>"$CSV"
-  done
+  local impl=$1 suite=$2 test=$3 run=$4
+  local prt json
+  prt=$(port "$suite")
+
+  case "$test" in
+    handshake) "${ROOT_DIR}/scripts/run_handshake.sh" >/dev/null ;;
+    bulk)      "${ROOT_DIR}/scripts/run_bulk.sh"      >/dev/null ;;
+    0rtt)      "${ROOT_DIR}/scripts/run_0rtt.sh"      >/dev/null ;;
+  esac
+
+  case "$test" in
+    handshake) json="${OUTDIR}/handshake_${prt}.json" ;;
+    bulk)      json="${OUTDIR}/bulk_${prt}.json"      ;;
+    0rtt)      json="${OUTDIR}/simple_${prt}.json"    ;;
+  esac
+  [[ -f "$json" ]] || { echo "⚠️  brak ${json}"; return; }
+
+  while read -r m v; do
+    echo "${impl},${suite},${test},${run},${m},${v},$(unit "$m")" >>"$CSV"
+  done < <(pairs "$json")
 }
 
-export -f run_single measure_cmd guess_unit progress
+export -f run_single port unit pairs
 
-if [[ ${1:-} == "--parallel" ]]; then
-  mapfile -t TASKS < <(
-    for i in "${IMPLEMENTATIONS[@]}"; do
-      for s in "${SUITES[@]}"; do
-        for t in "${TESTS[@]}"; do
-          for r in $(seq 1 "$ITERATIONS"); do
-            echo "$i $s $t $r"
-          done
-        done
-      done
-    done
-  )
-  printf '%s\n' "${TASKS[@]}" | parallel --jobs 4 --colsep ' ' run_single {1} {2} {3} {4}
-else
-  for impl in "${IMPLEMENTATIONS[@]}"; do
-    for suite in "${SUITES[@]}"; do
-      for test in "${TESTS[@]}"; do
-        for run in $(seq 1 "$ITERATIONS"); do
-          run_single "$impl" "$suite" "$test" "$run"
-        done
-      done
+for impl in "${IMPLEMENTATIONS[@]}"; do
+  for suite in "${SUITES[@]}"; do
+    for test in "${TESTS[@]}";  do
+      run_single "$impl" "$suite" "$test" 1
     done
   done
-fi
+done
 
-echo -e "\nCompleted: results saved to $CSV"
+echo "✔  Wyniki: $CSV"

@@ -1,54 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
+###############################################################################
+# run_handshake.sh — szybki pomiar handshake TLS (TCP➜TLS) przez curl.
+#   Wynik: results/handshake_<port>.json  {port, mean_ms, samples}
+###############################################################################
 
-echo "==== Test wydajności handshake TLS ===="
+HOST=${1:-localhost}            # serwer Nginx z docker-compose
+PORTS=(4431 4432)               # AES-GCM / ChaCha20 (4433 pomijamy – Ed25519 statyczny)
+SAMPLES=20                      # 20 próbek ≃ 1-2 s
 
-HOST=${1:-localhost}
-PORTS=(4431 4432 4433)
-TEST_TIME=${TEST_TIME:-15}
-OUTPUT_DIR="results"
-mkdir -p "$OUTPUT_DIR"
+OUTDIR="results"; mkdir -p "$OUTDIR"
+echo "==== Handshake TLS (${SAMPLES} próbek) na ${HOST} ===="
+
+measure() {                     # zwraca czas handshake w sekundach
+  curl -k -o /dev/null -s -w '%{time_appconnect}\n' "https://${HOST}:$1/"
+}
 
 for PORT in "${PORTS[@]}"; do
-  echo ""
-  echo "Testowanie ${HOST}:${PORT} (${TEST_TIME}s, pełny handshake)"
-
-  result=$(openssl s_time -connect "${HOST}:${PORT}" -new -time "${TEST_TIME}" 2>&1 || true)
-
-  summary=$(echo "$result" \
-            | grep -E '^[0-9]+ connections in [0-9]+\.[0-9]+s;' \
-            | head -n 1)
-  if [[ -z "$summary" ]]; then
-    echo "❌  Nie udało się sparsować wyniku dla portu ${PORT}"
+  if ! curl -k -m1 -o /dev/null -s "https://${HOST}:${PORT}/" 2>/dev/null; then
+    echo "⚠️  ${HOST}:${PORT} nieosiągalny – pomijam"
     continue
   fi
 
-  total_connections=$(echo "$summary" | awk '{print $1}')
-  total_time=$(echo "$summary" | awk '{print $4}' | tr -d 's;')
-  connections_per_sec=$(echo "$summary" | awk '{print $5}')
+  total=0
+  for _ in $(seq 1 "$SAMPLES"); do
+    t=$(measure "$PORT")
+    total=$(echo "$total + $t" | bc -l)
+  done
+  mean_ms=$(echo "scale=3; 1000 * $total / $SAMPLES" | bc -l)
 
-  mean_ms=$(awk -v t="$total_time" -v c="$total_connections" 'BEGIN {printf "%.3f", 1000*t/c}')
+  printf "→ %s:%s   %.3f ms\n" "$HOST" "$PORT" "$mean_ms"
 
-  echo "* Handshake'ów:            $total_connections"
-  echo "* Handshake'ów na sekundę: $connections_per_sec"
-  echo "* Średni czas handshake:   ${mean_ms} ms"
-
-  jq -n \
-    --arg port  "$PORT" \
-    --arg mean  "$mean_ms" \
-    --arg total "$total_connections" \
-    --arg cps   "$connections_per_sec" \
-    --arg tt    "$total_time" \
-    '{
-       "port":              ($port|tonumber),
-       "mean_ms":           ($mean|tonumber),
-       "total_connections": ($total|tonumber),
-       "connections_per_sec": ($cps|tonumber),
-       "test_time_s":       ($tt|tonumber)
-     }' > "${OUTPUT_DIR}/handshake_${PORT}.json"
-
-  echo "✔  Wyniki zapisane w ${OUTPUT_DIR}/handshake_${PORT}.json"
+  jq -n --arg port "$PORT" --arg mean "$mean_ms" --arg smp "$SAMPLES" \
+    '{port:($port|tonumber), mean_ms:($mean|tonumber), samples:($smp|tonumber)}' \
+    > "${OUTDIR}/handshake_${PORT}.json"
 done
-
-echo ""
-echo "Wszystkie testy zakończone."
