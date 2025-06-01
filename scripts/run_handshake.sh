@@ -7,7 +7,7 @@ set -euo pipefail
 
 HOST=${1:-localhost}            # serwer Nginx z docker-compose
 PORTS=(4431 4432)               # AES-GCM / ChaCha20 (4433 pomijamy – Ed25519 statyczny)
-SAMPLES=20                      # 20 próbek ≃ 1-2 s
+SAMPLES=40                      # 20 próbek ≃ 1-2 s
 
 OUTDIR="results"; mkdir -p "$OUTDIR"
 echo "==== Handshake TLS (${SAMPLES} próbek) na ${HOST} ===="

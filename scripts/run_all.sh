@@ -5,7 +5,7 @@ sudo -v                                       # jedno pyt. o hasło na sesję
 IMPLEMENTATIONS=(openssl boringssl wolfssl)
 SUITES=(x25519_aesgcm chacha20)               # bez kyber_hybrid
 TESTS=(handshake bulk 0rtt)
-ITERATIONS=1                                  # zostaw 1 — ~2 min testu
+ITERATIONS=30                                  # zostaw 1 — ~2 min testu
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTDIR="${ROOT_DIR}/results"
@@ -62,7 +62,9 @@ export -f run_single port unit pairs
 for impl in "${IMPLEMENTATIONS[@]}"; do
   for suite in "${SUITES[@]}"; do
     for test in "${TESTS[@]}";  do
-      run_single "$impl" "$suite" "$test" 1
+      for run in $(seq 1 "$ITERATIONS"); do
+        run_single "$impl" "$suite" "$test" "$run"
+      done
     done
   done
 done
