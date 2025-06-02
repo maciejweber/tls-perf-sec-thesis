@@ -1,5 +1,5 @@
 # Dockerfile — Nginx 1.25  +  OpenSSL 3.3.3  +  liboqs/oqs-provider (HEAD)
-ARG OPENSSL_VER=3.3.3
+ARG OPENSSL_VER=3.5.0
 ARG NGINX_VER=1.25.5
 
 FROM alpine:3.19 AS builder
@@ -48,6 +48,9 @@ RUN curl -sSL http://nginx.org/download/nginx-${NGINX_VER}.tar.gz \
         --with-ld-opt="-L/usr/local/ssl/lib -Wl,-rpath,/usr/local/ssl/lib" && \
     make -j$(nproc) && make install
 
+RUN sed -i '1ienv OPENSSL_CONF;\nenv OPENSSL_MODULES;\nenv LD_LIBRARY_PATH;' \
+    /etc/nginx/conf/nginx.conf
+
 RUN sed -i '/http {/a \
     include /etc/nginx/conf.d/*.conf;\n' /etc/nginx/conf/nginx.conf
 
@@ -64,5 +67,5 @@ ENV PATH="/etc/nginx/sbin:${PATH}" \
     OPENSSL_MODULES="/usr/local/ssl/lib/ossl-modules" \
     LD_LIBRARY_PATH="/usr/local/ssl/lib:/usr/local/lib"
 RUN mkdir -p /etc/nginx/conf.d
-EXPOSE 4431 4432 4433
+EXPOSE 4431 4432 8443
 CMD ["nginx", "-g", "daemon off;"]

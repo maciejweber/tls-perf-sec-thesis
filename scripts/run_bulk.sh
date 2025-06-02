@@ -1,75 +1,67 @@
 #!/usr/bin/env bash
 set -euo pipefail
+for b in curl jq bc; do command -v "$b" >/dev/null || {
+  echo "❌ $b brak"; exit 1; }; done
 
-for bin in curl jq bc; do
-  command -v "$bin" >/dev/null || { echo "❌ $bin not found"; exit 1; }
-done
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HOST=localhost
 
-HOST="${1-host.docker.internal}"
-PORTS=(4431 4432 4433)
-REQUESTS="${REQUESTS:-100}"
-CONCURRENT="${CONCURRENT:-5}"
+if [[ $# -eq 1 ]]; then
+  PORTS=("$1")
+else
+  PORTS=(4431 4432 8443)
+fi
 
-echo "==== Test wydajności TLS (bulk throughput) ===="
-echo "Host: ${HOST}  Zapytania: ${REQUESTS}  Równoległość: ${CONCURRENT}"
+REQUESTS=${REQUESTS:-100}   # dla 8443 – jedna paczka 1 MiB = jeden „request”
+
+echo "==== Bulk throughput TLS ===="
 mkdir -p results/raw
 
-measure_request() {
+measure() {
   local host=$1 port=$2
-  local start end
-  start=$(date +%s.%N)
-  curl -k "https://${host}:${port}/" -o /dev/null -s
-  end=$(date +%s.%N)
-  echo "$end - $start" | bc -l
+
+  if [[ $port == 8443 ]]; then               # ML-KEM hybrid
+    # Mierz czas transferu 1MB przez time -p
+    docker run --rm --network host -v "$ROOT_DIR/certs:/certs:ro" \
+      openquantumsafe/oqs-ossl3 \
+        sh -c '
+          time -p sh -c "
+            dd if=/dev/zero bs=1024 count=1024 2>/dev/null | \
+            openssl s_client -quiet \
+              -provider default -provider oqsprovider \
+              -groups X25519MLKEM768 -tls1_3 \
+              -CAfile /certs/ca.pem \
+              -connect localhost:8443 >/dev/null 2>&1
+          " 2>&1 | grep real | awk "{print \$2}"
+        '
+  else                                       # klasyczne porty
+    curl -kso /dev/null -w '%{time_total}\n' "https://${host}:${port}/"
+  fi
 }
 
 for PORT in "${PORTS[@]}"; do
-  echo ""
-  echo ">> Testowanie ${HOST}:${PORT}"
+  echo ""; echo ">> ${HOST}:${PORT}"
+  raw="results/raw/bulk_${PORT}.txt"; : >"$raw"
+  total=0
 
-  raw_file="results/raw/bulk_${PORT}.txt"
-  : > "$raw_file"
-
-  total_time=0
-  successful=0
-
-  for i in $(seq 1 "$REQUESTS"); do
-    [[ $((i % 10)) -eq 0 ]] && echo -n "."
-    t=$(measure_request "$HOST" "$PORT")
-    echo "$t" >> "$raw_file"
-    total_time=$(echo "$total_time + $t" | bc -l)
-    successful=$((successful + 1))
+  for _ in $(seq "$REQUESTS"); do
+    t=$(measure "$HOST" "$PORT"); echo "$t" >>"$raw"
+    total=$(echo "$total + $t" | bc -l)
   done
-  echo " zakończono!"
 
-  avg_time=$(echo "scale=6; $total_time / $successful" | bc -l)
-  avg_time=$(printf "%.6f" "$avg_time")
-  rps=$(echo "scale=2; $successful / $total_time" | bc -l)
+  avg=$(echo "scale=6; $total/$REQUESTS" | bc -l)
+  rps=$(echo "scale=2; $REQUESTS/$total" | bc -l)
+  
 
-  echo "* Zapytań na sekundę: $rps"
-  echo "* Średni czas zapytania: ${avg_time}s"
-  echo "* Udanych zapytań: $successful z $REQUESTS"
+  jq -n --arg host "$HOST" --arg port "$PORT" \
+        --arg rps "$rps" --arg avg "$avg" --arg req "$REQUESTS" \
+        '{host:$host, port:($port|tonumber),
+          requests_per_second:($rps|tonumber),
+          avg_request_time_s:($avg|tonumber),
+          total_requests:($req|tonumber)}' \
+        > "results/bulk_${PORT}.json"
 
-  # echo "$rps" > "results/bulk_${PORT}.txt"
-
-  jq -n \
-    --arg host "$HOST" \
-    --arg port "$PORT" \
-    --arg rps "$rps" \
-    --arg avg "$avg_time" \
-    --arg success "$successful" \
-    --arg total "$REQUESTS" \
-    '{
-      "host": $host,
-      "port": ($port|tonumber),
-      "requests_per_second": ($rps|tonumber),
-      "avg_request_time_s": ($avg|tonumber),
-      "successful_requests": ($success|tonumber),
-      "total_requests": ($total|tonumber)
-    }' > "results/bulk_${PORT}.json"
-
-  echo "Wyniki zapisane w results/bulk_${PORT}.json i ${raw_file}"
+  echo "* avg=${avg}s   * RPS=${rps}"
 done
 
-echo ""
-echo "Wszystkie testy zakończone."
+echo ""; echo "✓ Throughput finished"

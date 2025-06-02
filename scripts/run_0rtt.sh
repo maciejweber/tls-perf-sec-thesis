@@ -1,39 +1,49 @@
 #!/usr/bin/env bash
+set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "==== Prosty test wydajności TLS ===="
-mkdir -p results
+HOST=localhost
+if [[ $# -eq 1 ]]; then
+  PORTS=("$1")
+else
+  PORTS=(4431 4432 8443)
+fi
 
-HOST="host.docker.internal"
+COUNT=5
+OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
 
-test_port() {
+measure () {
   local port=$1
-  local desc=$2
-  local count=5
 
-  echo "Testowanie $desc (port $port)..."
-
-  total=0
-  for i in $(seq 1 $count); do
-    echo -n "  Test $i: "
-    start=$(date +%s.%N)
-    curl -k "https://${HOST}:${port}/" -o /dev/null -s
-    end=$(date +%s.%N)
-    time=$(echo "$end - $start" | bc -l)
-    echo "${time}s"
-    total=$(echo "$total + $time" | bc -l)
-  done
-
-  avg=$(echo "scale=6; $total / $count" | bc -l)
-  avg=$(printf "%.6f" "$avg")        
-
-  echo "Średni czas dla $desc: ${avg}s"
-
-  echo "{\"config\": \"$desc\", \"avg_time\": $avg}" \
-    > "results/simple_${port}.json"
+  if [[ $port == 8443 ]]; then
+    # Używamy tej samej metody co w handshake - tylko połączenie
+    docker run --rm --network host -v "$ROOT_DIR/certs:/certs:ro" \
+      openquantumsafe/oqs-ossl3 \
+        sh -c '
+          time -p sh -c "
+            openssl s_client -brief \
+              -provider default -provider oqsprovider \
+              -groups X25519MLKEM768 -tls1_3 \
+              -CAfile /certs/ca.pem \
+              -connect localhost:8443 </dev/null >/dev/null 2>&1
+          " 2>&1 | grep real | awk "{print \$2}"
+        '
+  else
+    curl -kso /dev/null -w '%{time_total}\n' "https://${HOST}:${port}/"
+  fi
 }
 
-test_port 4431 "AES-GCM z ECDSA P-256" && echo ""
-test_port 4432 "ChaCha20-Poly1305 z ECDSA P-256" && echo ""
-test_port 4433 "AES-256-GCM z Ed25519" && echo ""
+echo "==== 0-RTT / prosty test TLS ===="
+for PORT in "${PORTS[@]}"; do
+  total=0
+  for _ in $(seq "$COUNT"); do
+    total=$(echo "$total + $(measure "$PORT")" | bc -l)
+  done
+  avg=$(echo "scale=6; $total/$COUNT" | bc -l)
+  printf "→ %s:%s  avg=%.6fs\n" "$HOST" "$PORT" "$avg"
 
-echo "Testy zakończone. Wyniki zapisane w katalogu results/"
+  jq -n --arg avg "$avg" '{avg_time:($avg|tonumber)}' \
+       > "$OUTDIR/simple_${PORT}.json"
+done
+
+echo "✓ 0-RTT finished"

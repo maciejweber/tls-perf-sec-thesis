@@ -7,7 +7,7 @@ services:
     ports:
       - "4431:4431" # AES-GCM
       - "4432:4432" # ChaCha20-Poly1305
-      - "4433:4433" # Ed25519 z AES-256-GCM
+      - "8443:8443" # X25519+ML-KEM-768 hybrid
     volumes:
       - ./certs:/etc/nginx/certs:ro
       - ./docker/nginx-oqs/conf.d:/etc/nginx/conf.d:ro

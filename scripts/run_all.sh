@@ -1,72 +1,79 @@
 #!/usr/bin/env bash
 set -euo pipefail
-sudo -v                                       # jedno pyt. o hasło na sesję
+sudo -v                       # odśwież sudo tylko raz
 
 IMPLEMENTATIONS=(openssl boringssl wolfssl)
-SUITES=(x25519_aesgcm chacha20)               # bez kyber_hybrid
+SUITES=(x25519_aesgcm chacha20 kyber_hybrid)
 TESTS=(handshake bulk 0rtt)
-ITERATIONS=30                                  # zostaw 1 — ~2 min testu
+ITERATIONS=${ITERATIONS:-30}  # użyj:  ITERATIONS=1 ./scripts/run_all.sh
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUTDIR="${ROOT_DIR}/results"
-CSV="${OUTDIR}/bench_$(date +%F).csv"
+OUTDIR="$ROOT_DIR/results"
+CSV="$OUTDIR/bench_$(date +%F).csv"
 mkdir -p "$OUTDIR"
-[[ -f "$CSV" ]] || echo "implementation,suite,test,run,metric,value,unit" >"$CSV"
+echo "implementation,suite,test,run,metric,value,unit" >"$CSV"   # ZAWSZE świeży plik
 
-# mapa suite → port
-port() { [[ $1 == x25519_aesgcm ]] && echo 4431 || echo 4432; }
-
-# jednostki
-unit() {
-  case "$1" in mean_ms) echo ms;; mean_time_s) echo s;; rps) echo 1/s;; *) echo -;; esac
+port() {
+  case $1 in
+    x25519_aesgcm) echo 4431 ;;
+    chacha20)      echo 4432 ;;
+    kyber_hybrid)  echo 8443 ;;
+  esac
 }
 
-# konwersja JSON → wiersze CSV
+unit() {
+  case $1 in mean_ms) echo ms;;
+             mean_time_s) echo s;;
+             rps) echo 1/s;;
+             *)  echo -;;
+  esac
+}
+
 pairs() {
   jq -Mr '
     to_entries
     | map(
-        if .key|test("avg_(request_)?time")      then {k:"mean_time_s",v:.value}
-        elif .key=="requests_per_second"        then {k:"rps",v:.value}
+        if   .key|test("avg_(request_)?time") then {k:"mean_time_s",v:.value}
+        elif .key=="requests_per_second"      then {k:"rps",v:.value}
         elif .key|test("^(host|port|config|successful_|total_)") then empty
-        else {k:.key,v:.value} end
-      ) | .[] | "\(.k) \(.v)"
+        else {k:.key,v:.value} end )
+    | .[] | "\(.k) \(.v)"
   ' "$1"
 }
 
-run_single() {
+run_once() {
   local impl=$1 suite=$2 test=$3 run=$4
-  local prt json
-  prt=$(port "$suite")
+  echo "▶ $impl/$suite/$test #$run"
+  local prt json ; prt=$(port "$suite")
 
-  case "$test" in
-    handshake) "${ROOT_DIR}/scripts/run_handshake.sh" >/dev/null ;;
-    bulk)      "${ROOT_DIR}/scripts/run_bulk.sh"      >/dev/null ;;
-    0rtt)      "${ROOT_DIR}/scripts/run_0rtt.sh"      >/dev/null ;;
+  case $test in
+    handshake) "$ROOT_DIR/scripts/run_handshake.sh" "$prt" >/dev/null ;;
+    bulk)      "$ROOT_DIR/scripts/run_bulk.sh"      "$prt" >/dev/null ;;
+    0rtt)      "$ROOT_DIR/scripts/run_0rtt.sh"      "$prt" >/dev/null ;;
   esac
 
-  case "$test" in
-    handshake) json="${OUTDIR}/handshake_${prt}.json" ;;
-    bulk)      json="${OUTDIR}/bulk_${prt}.json"      ;;
-    0rtt)      json="${OUTDIR}/simple_${prt}.json"    ;;
+  case $test in
+    handshake) json="$OUTDIR/handshake_${prt}.json" ;;
+    bulk)      json="$OUTDIR/bulk_${prt}.json"      ;;
+    0rtt)      json="$OUTDIR/simple_${prt}.json"    ;;
   esac
-  [[ -f "$json" ]] || { echo "⚠️  brak ${json}"; return; }
+  [[ -f $json ]] || { echo "⚠️  brak $json"; return; }
 
   while read -r m v; do
-    echo "${impl},${suite},${test},${run},${m},${v},$(unit "$m")" >>"$CSV"
+    echo "$impl,$suite,$test,$run,$m,$v,$(unit "$m")" >>"$CSV"
   done < <(pairs "$json")
 }
 
-export -f run_single port unit pairs
+export -f run_once port unit pairs
 
 for impl in "${IMPLEMENTATIONS[@]}"; do
-  for suite in "${SUITES[@]}"; do
-    for test in "${TESTS[@]}";  do
-      for run in $(seq 1 "$ITERATIONS"); do
-        run_single "$impl" "$suite" "$test" "$run"
+  for suite in "${SUITES[@]}";     do
+    for test  in "${TESTS[@]}";    do
+      for run  in $(seq "$ITERATIONS"); do
+        run_once "$impl" "$suite" "$test" "$run"
       done
     done
   done
 done
 
-echo "✔  Wyniki: $CSV"
+echo "✔  Wyniki zapisane w: $CSV"
