@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMPLEMENTATIONS=(openssl)
+IMPLEMENTATIONS=(openssl boringssl wolfssl)
 SUITES=(x25519_aesgcm chacha20 kyber_hybrid)
 TESTS=(handshake bulk 0rtt)
 ITERATIONS=${ITERATIONS:-30}
@@ -98,8 +98,9 @@ run_once() {
         echo "  📊 Mierzę zasoby dla $suite..."
         
         case "$suite" in
-          x25519_aesgcm) cmd="openssl speed -evp aes-128-gcm -seconds 1" ;;
-          chacha20)      cmd="openssl speed -evp chacha20-poly1305 -seconds 1" ;;
+          x25519_aesgcm) cmd="docker run --rm … openssl speed -evp aes-128-gcm -seconds 1" ;;
+          chacha20)      cmd="docker run --rm … openssl speed -evp chacha20-poly1305 -seconds 1" ;;
+          kyber_hybrid)  cmd="docker run --rm … openssl speed -provider oqsprovider -provider default -seconds 1 X25519MLKEM768" ;;
           *)             cmd="" ;;
         esac
         
