@@ -98,9 +98,9 @@ run_once() {
         echo "  📊 Mierzę zasoby dla $suite..."
         
         case "$suite" in
-          x25519_aesgcm) cmd="docker run --rm … openssl speed -evp aes-128-gcm -seconds 1" ;;
-          chacha20)      cmd="docker run --rm … openssl speed -evp chacha20-poly1305 -seconds 1" ;;
-          kyber_hybrid)  cmd="docker run --rm … openssl speed -provider oqsprovider -provider default -seconds 1 X25519MLKEM768" ;;
+          x25519_aesgcm) cmd="docker run --rm --network host openquantumsafe/oqs-ossl3 sh -c 'openssl speed -provider default -evp aes-128-gcm -seconds 1'" ;;
+          chacha20)      cmd="docker run --rm --network host openquantumsafe/oqs-ossl3 sh -c 'openssl speed -provider default -evp chacha20-poly1305 -seconds 1'" ;;
+          kyber_hybrid)  cmd="docker run --rm --network host openquantumsafe/oqs-ossl3 sh -c 'openssl speed -provider oqsprovider -provider default -seconds 1 X25519MLKEM768'" ;;
           *)             cmd="" ;;
         esac
         
