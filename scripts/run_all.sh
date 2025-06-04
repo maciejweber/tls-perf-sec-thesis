@@ -8,6 +8,7 @@ TESTS=(handshake bulk 0rtt)
 ITERATIONS=${ITERATIONS:-30}
 NETEM=${NETEM:-0}
 MEASURE_RESOURCES=${MEASURE_RESOURCES:-0}
+PAYLOAD_SIZE_MB=${PAYLOAD_SIZE_MB:-1}
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -48,6 +49,7 @@ Implementations: ${IMPLEMENTATIONS[@]}
 Suites: ${SUITES[@]}
 Tests: ${TESTS[@]}
 REQUESTS: ${REQUESTS:-100}
+PAYLOAD_SIZE_MB: $PAYLOAD_SIZE_MB
 NetEm: $([[ $NETEM -eq 1 ]] && echo "Yes (delay=${NETEM_DELAY}ms, loss=${NETEM_LOSS})" || echo "No")
 Resource Measurement: $([[ $MEASURE_RESOURCES -eq 1 ]] && echo "Yes" || echo "No")
 EOF
@@ -214,12 +216,14 @@ run_once() {
 }
 
 export -f run_once port unit pairs
+export PAYLOAD_SIZE_MB
 
 START_TIME=$(date +%s)
 
 echo "🚀 Starting comprehensive TLS benchmark..."
 echo "   Iterations: $ITERATIONS"
 echo "   Resource measurement: $([[ $MEASURE_RESOURCES -eq 1 ]] && echo "Enabled" || echo "Disabled")"
+echo "   Payload size: ${PAYLOAD_SIZE_MB}MB"
 echo "   Implementations: ${IMPLEMENTATIONS[*]}"
 echo "   Cipher suites: ${SUITES[*]}"
 echo "   Tests: ${TESTS[*]}"

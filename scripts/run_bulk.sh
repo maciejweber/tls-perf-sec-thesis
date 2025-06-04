@@ -12,30 +12,34 @@ else
   PORTS=(4431 4432 8443)
 fi
 
-REQUESTS=${REQUESTS:-100}   # dla 8443 – jedna paczka 1 MiB = jeden „request”
+REQUESTS=${REQUESTS:-100}
+PAYLOAD_SIZE_MB=${PAYLOAD_SIZE_MB:-1}
+PAYLOAD_SIZE_KB=$((PAYLOAD_SIZE_MB * 1024))
 
-echo "==== Bulk throughput TLS ===="
+echo "==== Bulk throughput TLS (${PAYLOAD_SIZE_MB}MB) ===="
 mkdir -p results/raw
 
 measure() {
   local host=$1 port=$2
 
-  if [[ $port == 8443 ]]; then               # ML-KEM hybrid
-    # Mierz czas transferu 1MB przez time -p
+  if [[ $port == 8443 ]]; then
     docker run --rm --network host -v "$ROOT_DIR/certs:/certs:ro" \
       openquantumsafe/oqs-ossl3 \
-        sh -c '
-          time -p sh -c "
-            dd if=/dev/zero bs=1024 count=1024 2>/dev/null | \
-            openssl s_client -quiet \
-              -provider default -provider oqsprovider \
-              -groups X25519MLKEM768 -tls1_3 \
-              -CAfile /certs/ca.pem \
+        sh -c "
+          time -p sh -c \"
+            dd if=/dev/zero bs=1024 count=$PAYLOAD_SIZE_KB 2>/dev/null | \\
+            openssl s_client -quiet \\
+              -provider default -provider oqsprovider \\
+              -groups X25519MLKEM768 -tls1_3 \\
+              -CAfile /certs/ca.pem \\
               -connect localhost:8443 >/dev/null 2>&1
-          " 2>&1 | grep real | awk "{print \$2}"
-        '
-  else                                       # klasyczne porty
-    curl -kso /dev/null -w '%{time_total}\n' "https://${host}:${port}/"
+          \" 2>&1 | grep real | awk \"{print \\\$2}\"
+        "
+  else
+    dd if=/dev/zero bs=1M count=$PAYLOAD_SIZE_MB 2>/dev/null | \
+    curl -kso /dev/null -w '%{time_total}\n' \
+         --data-binary @- \
+         "https://${host}:${port}/upload"
   fi
 }
 
@@ -55,10 +59,12 @@ for PORT in "${PORTS[@]}"; do
 
   jq -n --arg host "$HOST" --arg port "$PORT" \
         --arg rps "$rps" --arg avg "$avg" --arg req "$REQUESTS" \
+        --arg payload "$PAYLOAD_SIZE_MB" \
         '{host:$host, port:($port|tonumber),
           requests_per_second:($rps|tonumber),
           avg_request_time_s:($avg|tonumber),
-          total_requests:($req|tonumber)}' \
+          total_requests:($req|tonumber),
+          payload_size_mb:($payload|tonumber)}' \
         > "results/bulk_${PORT}.json"
 
   echo "* avg=${avg}s   * RPS=${rps}"
