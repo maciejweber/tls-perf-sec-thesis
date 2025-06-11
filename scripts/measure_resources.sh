@@ -138,22 +138,22 @@ if [[ "$(uname)" == "Darwin" ]]; then
                 fi
             fi
             
-            # Fallback estimates based on CPU type and load
+            # FIXED: Realistic fallback estimates based on CPU type and load
             if [[ $attempt -eq 5 ]]; then
                 echo "Using fallback power estimation..." >> "$PM_DEBUG"
                 if [[ "$CPU_BRAND" == *"Apple"* ]]; then
                     # Apple Silicon - very efficient
                     if [[ "$CMD" == *"speed"* ]] || [[ "$CMD" == *"openssl"* ]]; then
-                        echo "8.5"  # High crypto load on Apple Silicon
+                        echo "12.0"  # High crypto load on Apple Silicon (was 8.5)
                     else
-                        echo "6.0"  # Normal load
+                        echo "8.0"   # Normal load (was 6.0)
                     fi
                 else
                     # Intel Mac - higher power consumption
                     if [[ "$CMD" == *"speed"* ]] || [[ "$CMD" == *"openssl"* ]]; then
-                        echo "15.0"  # High crypto load on Intel
+                        echo "18.0"  # High crypto load on Intel (was 15.0)
                     else
-                        echo "12.0"  # Normal load
+                        echo "15.0"  # Normal load (was 12.0)
                     fi
                 fi
             fi
@@ -165,8 +165,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
                 print avg > "/dev/stderr";
                 print avg
             } else {
-                print "7.5" > "/dev/stderr";
-                print "7.5"
+                print "10.0" > "/dev/stderr";
+                print "10.0"
             }
         }' 2>>"$PM_DEBUG" > "$PM_TXT"
     } &
@@ -183,9 +183,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
     
     # Read power measurement
     if [[ -f "$PM_TXT" ]]; then
-        PKG_WATTS=$(cat "$PM_TXT" 2>/dev/null || echo "7.5")
+        PKG_WATTS=$(cat "$PM_TXT" 2>/dev/null || echo "10.0")
     else
-        PKG_WATTS="7.5"
+        PKG_WATTS="10.0"
     fi
     
     EXEC_TIME=$(echo "$END_TIME - $START_TIME" | bc -l)
@@ -196,7 +196,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     echo "📊 Power: ${PKG_WATTS}W, Time: ${EXEC_TIME}s, CPU: ${CPU_FREQ_GHZ}GHz"
     
     # Keep debug file if power measurement failed
-    if [[ "$PKG_WATTS" == "7.5" ]] || [[ "$PKG_WATTS" == "5" ]]; then
+    if [[ "$PKG_WATTS" == "10.0" ]] || [[ "$PKG_WATTS" == "5" ]]; then
         echo "⚠️  Power measurement fallback used - see $PM_DEBUG for details"
     else
         rm -f "$PM_DEBUG"

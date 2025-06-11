@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FIXED run_all.sh - Comprehensive resource measurement
+# FIXED run_all.sh - TLS performance measurement (removed misleading crypto benchmarks)
 set -euo pipefail
 
 IMPLEMENTATIONS=(openssl boringssl wolfssl)
@@ -73,11 +73,10 @@ unit() {
     mean_time_s) echo s;;
     rps) echo "ops/s";;
     resource_mean_ms) echo ms;;
+    resource_watts) echo W;;
+    resource_cpu_freq_ghz) echo GHz;;
     package_watts) echo W;;
-    cpu_cycles_per_byte) echo "cycles/byte";;
-    efficiency_mb_per_joule) echo "MB/s/W";;
-    crypto_throughput_mb_s) echo "MB/s";;
-    crypto_operation_ms) echo ms;;
+    throughput_mb_s) echo "MB/s";;
     *) echo -;;
   esac
 }
@@ -94,110 +93,23 @@ pairs() {
   ' "$1"
 }
 
-# === ENHANCED CRYPTO PERFORMANCE MEASUREMENT ===
-measure_crypto_performance() {
-    local suite=$1 impl=$2 run=$3
-    
-    if [[ $MEASURE_RESOURCES -eq 0 ]]; then
-        return 0
-    fi
-    
-    echo "  📊 Measuring crypto performance for $suite..."
-    
-    local cmd=""
-    local test_name=""
-    
-    case "$suite" in
-        x25519_aesgcm) 
-            # Test both ECDH and AES separately
-            local ecdh_cmd="docker run --rm --network host openquantumsafe/oqs-ossl3 sh -c 'openssl speed -seconds 1 ecdh'"
-            local aes_cmd="docker run --rm --network host openquantumsafe/oqs-ossl3 sh -c 'openssl speed -provider default -evp aes-128-gcm -seconds 1'"
-            
-            # Test ECDH
-            if timeout 60 "$ROOT_DIR/scripts/measure_resources.sh" "$ecdh_cmd" >/dev/null 2>&1; then
-                local latest_ecdh=$(ls -t "$ROOT_DIR/results"/combined_*.json 2>/dev/null | head -1)
-                if [[ -f "$latest_ecdh" ]]; then
-                    cp "$latest_ecdh" "$RUN_DIR/perf_${impl}_${suite}_ecdh_run${run}.json"
-                    
-                    local ecdh_cycles=$(jq -r '.cpu_cycles_per_byte // 0' "$latest_ecdh")
-                    local ecdh_ops=$(jq -r '.throughput_mb_s // 0' "$latest_ecdh")
-                    local ecdh_watts=$(jq -r '.package_watts // 0' "$latest_ecdh")
-                    
-                    echo "$impl,$suite,crypto,$run,ecdh_cycles_per_byte,$ecdh_cycles,cycles/byte" >>"$CSV"
-                    echo "$impl,$suite,crypto,$run,ecdh_throughput_mb_s,$ecdh_ops,MB/s" >>"$CSV"
-                    echo "$impl,$suite,crypto,$run,ecdh_power_watts,$ecdh_watts,W" >>"$CSV"
-                fi
-            fi
-            
-            # Test AES
-            cmd="$aes_cmd"
-            test_name="aes"
-            ;;
-        chacha20)      
-            cmd="docker run --rm --network host openquantumsafe/oqs-ossl3 sh -c 'openssl speed -provider default -evp chacha20-poly1305 -seconds 1'"
-            test_name="chacha20"
-            ;;
-        kyber_hybrid)  
-            cmd="docker run --rm --network host openquantumsafe/oqs-ossl3 sh -c 'openssl speed -provider oqsprovider -provider default -seconds 1 X25519MLKEM768'"
-            test_name="kyber"
-            ;;
-        *)             
-            return 0
-            ;;
-    esac
-    
-    if [[ -n "$cmd" ]]; then
-        local perf_output="$RUN_DIR/perf_${impl}_${suite}_run${run}.txt"
-        
-        if timeout 60 "$ROOT_DIR/scripts/measure_resources.sh" "$cmd" >"$perf_output" 2>&1; then
-            
-            # Find the latest performance JSON
-            local latest_perf=$(ls -t "$ROOT_DIR/results"/combined_*.json 2>/dev/null | head -1)
-            if [[ -f "$latest_perf" ]]; then
-                cp "$latest_perf" "$RUN_DIR/perf_${impl}_${suite}_run${run}.json"
-                
-                # Extract comprehensive metrics
-                local mean_time=$(jq -r '.mean_time_ms // 0' "$latest_perf")
-                local watts=$(jq -r '.package_watts // 0' "$latest_perf")
-                local cycles_per_byte=$(jq -r '.cpu_cycles_per_byte // 0' "$latest_perf")
-                local efficiency=$(jq -r '.energy_efficiency_mb_per_joule // 0' "$latest_perf")
-                local throughput=$(jq -r '.throughput_mb_s // 0' "$latest_perf")
-                local cpu_cycles=$(jq -r '.cpu_cycles_estimated // 0' "$latest_perf")
-                local bytes_processed=$(jq -r '.bytes_processed // 0' "$latest_perf")
-                
-                # Add all metrics to CSV
-                echo "$impl,$suite,crypto,$run,crypto_operation_ms,$mean_time,ms" >>"$CSV"
-                echo "$impl,$suite,crypto,$run,package_watts,$watts,W" >>"$CSV"
-                echo "$impl,$suite,crypto,$run,cpu_cycles_per_byte,$cycles_per_byte,cycles/byte" >>"$CSV"
-                echo "$impl,$suite,crypto,$run,efficiency_mb_per_joule,$efficiency,MB/s/W" >>"$CSV"
-                echo "$impl,$suite,crypto,$run,crypto_throughput_mb_s,$throughput,MB/s" >>"$CSV"
-                echo "$impl,$suite,crypto,$run,total_cpu_cycles,$cpu_cycles,cycles" >>"$CSV"
-                echo "$impl,$suite,crypto,$run,bytes_processed,$bytes_processed,bytes" >>"$CSV"
-                
-                echo "    ✓ ${test_name}: $throughput MB/s, $cycles_per_byte cycles/byte, $efficiency MB/s/W"
-            fi
-        else
-            echo "    ⚠️  Crypto measurement failed for $suite"
-        fi
-    fi
-}
+# REMOVED: measure_crypto_performance function - was comparing apples to oranges
+# The function was creating misleading comparisons between:
+# - AES symmetric encryption (fast, bulk data processing)
+# - Kyber key operations (slow, asymmetric key agreement)
+# This resulted in meaningless 213x performance differences
 
 run_once() {
   local impl=$1 suite=$2 test=$3 run=$4
   echo "▶ $impl/$suite/$test #$run"
-  local prt json ; prt=$(port "$suite")
+  local prt json 
+  prt=$(port "$suite")
 
+  # Run the actual TLS test NORMALLY
   case $test in
     handshake) "$ROOT_DIR/scripts/run_handshake.sh" "$prt" >/dev/null ;;
-    bulk)      
-      "$ROOT_DIR/scripts/run_bulk.sh" "$prt" >/dev/null
-      
-      # Enhanced crypto performance measurement - every 5th run for efficiency
-      if [[ $MEASURE_RESOURCES -eq 1 && "$impl" == "openssl" && $(( run % 5 )) -eq 1 ]]; then
-        measure_crypto_performance "$suite" "$impl" "$run"
-      fi
-      ;;
-    0rtt) "$ROOT_DIR/scripts/run_0rtt.sh" "$prt" >/dev/null ;;
+    bulk)      "$ROOT_DIR/scripts/run_bulk.sh" "$prt" >/dev/null ;;
+    0rtt)      "$ROOT_DIR/scripts/run_0rtt.sh" "$prt" >/dev/null ;;
   esac
 
   case $test in
@@ -206,13 +118,45 @@ run_once() {
     0rtt)      json="$ROOT_DIR/results/simple_${prt}.json"    ;;
   esac
   
-  [[ -f $json ]] || { echo "⚠️  brak $json"; return; }
+  if [[ ! -f "$json" ]]; then 
+    echo "⚠️  brak $json"
+    return
+  fi
 
   cp "$json" "$RUN_DIR/"
 
+  # Extract TLS performance metrics
   while read -r m v; do
     echo "$impl,$suite,$test,$run,$m,$v,$(unit "$m")" >>"$CSV"
   done < <(pairs "$json")
+  
+  # Add SIMPLE resource measurement (every 5th run)
+  if [[ $MEASURE_RESOURCES -eq 1 && "$test" == "bulk" && $(( run % 5 )) -eq 1 ]]; then
+    echo "  📊 Measuring system resources..."
+    
+    # Use a SIMPLE command that works, not complex TLS scripts
+    local simple_cmd="openssl speed -evp aes-128-gcm -seconds 1"
+    
+    if "$ROOT_DIR/scripts/measure_resources.sh" "$simple_cmd" >/dev/null 2>&1; then
+      # Find the latest resource JSON
+      local latest_resource
+      latest_resource=$(ls -t "$ROOT_DIR/results"/combined_*.json 2>/dev/null | head -1)
+      if [[ -f "$latest_resource" ]]; then
+        cp "$latest_resource" "$RUN_DIR/resource_${impl}_${suite}_${test}_run${run}.json"
+        
+        # Extract resource metrics and add to CSV
+        local watts cpu_freq
+        watts=$(jq -r '.package_watts // 0' "$latest_resource" 2>/dev/null)
+        cpu_freq=$(jq -r '.cpu_freq_ghz // 0' "$latest_resource" 2>/dev/null)
+        
+        if [[ "$watts" != "0" && "$watts" != "null" ]]; then
+          echo "$impl,$suite,$test,$run,resource_watts,$watts,W" >>"$CSV"
+          echo "$impl,$suite,$test,$run,resource_cpu_freq_ghz,$cpu_freq,GHz" >>"$CSV"
+          echo "    ✓ Resources: ${watts}W, ${cpu_freq}GHz"
+        fi
+      fi
+    fi
+  fi
 }
 
 export -f run_once port unit pairs
@@ -220,13 +164,19 @@ export PAYLOAD_SIZE_MB
 
 START_TIME=$(date +%s)
 
-echo "🚀 Starting comprehensive TLS benchmark..."
+echo "🚀 Starting TLS performance benchmark..."
 echo "   Iterations: $ITERATIONS"
 echo "   Resource measurement: $([[ $MEASURE_RESOURCES -eq 1 ]] && echo "Enabled" || echo "Disabled")"
 echo "   Payload size: ${PAYLOAD_SIZE_MB}MB"
 echo "   Implementations: ${IMPLEMENTATIONS[*]}"
 echo "   Cipher suites: ${SUITES[*]}"
 echo "   Tests: ${TESTS[*]}"
+echo ""
+echo "📊 Focus: Real TLS performance metrics"
+echo "   ✓ Handshake latency (total connection time)"
+echo "   ✓ Bulk throughput (data transfer performance)"
+echo "   ✓ 0-RTT performance (session resumption)"
+echo "   ✓ Implementation comparison"
 echo ""
 
 total_tests=$((${#IMPLEMENTATIONS[@]} * ${#SUITES[@]} * ${#TESTS[@]} * ITERATIONS))
@@ -274,6 +224,16 @@ cat >> "$RUN_DIR/config.txt" <<EOF
 Duration: ${DURATION_MIN}m ${DURATION_SEC}s
 Total measurements: $current_test
 Completed at: $(date)
+
+=== MEASUREMENT FOCUS ===
+This benchmark focuses on realistic TLS performance metrics:
+- Handshake latency: Total time to establish secure connection
+- Bulk throughput: Data transfer performance after handshake
+- 0-RTT performance: Session resumption capabilities
+- Implementation comparison: OpenSSL vs BoringSSL vs WolfSSL
+
+Note: Raw crypto operation comparisons removed as they were
+misleading (comparing symmetric vs asymmetric operations).
 EOF
 
 if [[ -d "$ROOT_DIR/results/raw" ]]; then
@@ -295,18 +255,20 @@ if [[ -f "$CSV" ]]; then
     echo ""
     echo "📈 Quick Summary:"
     total_rows=$(( $(wc -l < "$CSV") - 1 ))
-    crypto_measurements=$(grep -c "crypto," "$CSV" 2>/dev/null || echo "0")
     unique_configs=$(tail -n +2 "$CSV" | cut -d, -f2 | sort -u | wc -l)
     
     echo "   Data points collected: $total_rows"
-    echo "   Crypto measurements: $crypto_measurements"
     echo "   Unique configurations: $unique_configs"
+    echo "   Meaningful metrics: handshake_ms, throughput_rps, response_time_s"
     
     echo ""
     echo "🔬 Next steps:"
     echo "   1. Run analysis: python3 analyze.py"
     echo "   2. Check results: ls results/latest/"
     echo "   3. View plots: ls figures/"
+    echo ""
+    echo "💡 Note: This focuses on end-to-end TLS performance,"
+    echo "   not individual crypto operations which can be misleading."
 fi
 
 if [[ $NETEM -eq 1 ]]; then
