@@ -1,4 +1,3 @@
-# compare_aesni.py
 #!/usr/bin/env python3
 import sys
 import pathlib
@@ -39,7 +38,7 @@ print(f"✅ zapisano {out_csv.absolute()}")
 dfp = pivot.reset_index()
 sns.set_palette("colorblind")
 
-# put compare-AESNI charts under figures/<run_name>/compare_aesni/
+
 figures_dir = pathlib.Path("figures") / run_name / "compare_aesni"
 figures_dir.mkdir(parents=True, exist_ok=True)
 
@@ -48,9 +47,13 @@ for metric, ylabel, fname in [
     ("rps", "Δ Throughput (RPS)", "aesni_delta_rps.png"),
 ]:
     sub = dfp[dfp.metric == metric]
-    plt.figure(figsize=(8, 5))
-    ax = sns.barplot(data=sub, x="suite", y="delta_percent", hue="implementation")
+
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    sns.barplot(data=sub, x="suite", y="delta_percent", hue="implementation", ax=ax)
+
     ax.axhline(0, color="black", linewidth=1)
+
     for p in ax.patches:
         h = p.get_height()
         if pd.notna(h):
@@ -58,18 +61,30 @@ for metric, ylabel, fname in [
                 f"{h:+.1f}%",
                 (p.get_x() + p.get_width() / 2, h),
                 ha="center",
-                va="bottom",
+                va="bottom" if h >= 0 else "top",
                 fontsize=8,
             )
+
     ax.set_ylabel("Δ % (off – on) / on")
     ax.set_xlabel("Suite")
-    ax.set_title(ylabel)
+    ax.set_title(ylabel, pad=20)
+
     ax.legend(
         title="Implementation",
         loc="upper center",
-        bbox_to_anchor=(0.5, 1.15),
+        bbox_to_anchor=(0.5, -0.1),
         ncol=len(sub.implementation.unique()),
+        frameon=True,
     )
-    plt.tight_layout()
-    plt.savefig(figures_dir / fname, dpi=300)
+
+    plt.subplots_adjust(
+        top=0.9,
+        bottom=0.2,
+        left=0.1,
+        right=0.95,
+    )
+
+    plt.savefig(figures_dir / fname, dpi=300, bbox_inches="tight")
     plt.close()
+
+print(f"✅ wykresy zapisane w {figures_dir.absolute()}")
