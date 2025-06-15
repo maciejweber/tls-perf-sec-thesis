@@ -31,9 +31,9 @@ pivot = (
 )
 pivot["delta_percent"] = ((pivot["off"] - pivot["on"]) / pivot["on"] * 100).round(1)
 
-out_csv = pathlib.Path("aesni_compare.csv")
+out_csv = run_on / "aesni_compare.csv"
 pivot.to_csv(out_csv)
-print(f"✅ zapisano {out_csv.absolute()}")
+print(f"✅ zapisano CSV: {out_csv.absolute()}")
 
 dfp = pivot.reset_index()
 sns.set_palette("colorblind")
@@ -47,26 +47,35 @@ for metric, ylabel, fname in [
     ("rps", "Δ Throughput (RPS)", "aesni_delta_rps.png"),
 ]:
     sub = dfp[dfp.metric == metric]
+    if sub.empty:
+        continue
 
     fig, ax = plt.subplots(figsize=(10, 7))
 
     sns.barplot(data=sub, x="suite", y="delta_percent", hue="implementation", ax=ax)
-
     ax.axhline(0, color="black", linewidth=1)
 
     for p in ax.patches:
         h = p.get_height()
         if pd.notna(h):
+
+            if h >= 0:
+                va = "bottom"
+                y = h + (abs(h) * 0.02 if abs(h) > 1e-6 else 0.5)
+            else:
+                va = "top"
+                y = h - (abs(h) * 0.02 if abs(h) > 1e-6 else 0.5)
             ax.annotate(
                 f"{h:+.1f}%",
-                (p.get_x() + p.get_width() / 2, h),
+                (p.get_x() + p.get_width() / 2, y),
                 ha="center",
-                va="bottom" if h >= 0 else "top",
+                va=va,
                 fontsize=8,
             )
 
     ax.set_ylabel("Δ % (off – on) / on")
     ax.set_xlabel("Suite")
+
     ax.set_title(ylabel, pad=20)
 
     ax.legend(
@@ -84,7 +93,9 @@ for metric, ylabel, fname in [
         right=0.95,
     )
 
-    plt.savefig(figures_dir / fname, dpi=300, bbox_inches="tight")
-    plt.close()
+    out_path = figures_dir / fname
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"✓ zapisano wykres: {out_path.absolute()}")
 
 print(f"✅ wykresy zapisane w {figures_dir.absolute()}")
