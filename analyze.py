@@ -1,4 +1,3 @@
-# analyze.py
 #!/usr/bin/env python3
 import argparse
 import sys
@@ -18,7 +17,10 @@ def parse_args():
         help="katalog run_... (domyślnie results/latest)",
     )
     p.add_argument(
-        "-s", "--separate", action="store_true", help="generuj każdy wykres osobno"
+        "-s",
+        "--separate",
+        action="store_true",
+        help="generuj każdy wykres osobno",
     )
     return p.parse_args()
 
@@ -62,12 +64,13 @@ def read_csv_robust(path):
         return df
 
 
-def load_data(run_dir):
+def load_data(run_dir: Path):
     csv = run_dir / "bench.csv"
     if not csv.exists():
         print(f"❌ Brak {csv}")
         sys.exit(1)
     df = read_csv_robust(csv)
+    # parsowanie config.txt (opcjonalnie netem)
     cfg = {"delay": 0, "loss": 0.0}
     txt = run_dir / "config.txt"
     if txt.exists():
@@ -81,14 +84,14 @@ def load_data(run_dir):
     return df, cfg
 
 
-def prepare_data(df):
-    m = {
+def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
+    mapping = {
         "mean_ms": "handshake_ms",
         "rps": "throughput_rps",
         "mean_time_s": "response_time_s",
         "throughput_mb_s": "throughput_mb_s",
     }
-    df["metric_clean"] = df.metric.map(m).fillna(df.metric)
+    df["metric_clean"] = df.metric.map(mapping).fillna(df.metric)
     keep = [
         "handshake_ms",
         "throughput_rps",
@@ -99,105 +102,138 @@ def prepare_data(df):
         "failed_measurements",
         "failed_requests",
     ]
-    df2 = df[df.metric_clean.isin(keep)]
-    p = df2.pivot_table(
+    df = df[df.metric_clean.isin(keep)]
+    pivot = df.pivot_table(
         index=["implementation", "suite", "test", "run"],
         columns="metric_clean",
         values="value",
         aggfunc="first",
     ).reset_index()
-    if "throughput_rps" in p:
-        p["throughput_mb_s"] = p["throughput_rps"] * 1.0
-    sm = {
-        "x25519_aesgcm": "Traditional (X25519+AES-GCM)",
-        "chacha20": "Traditional (X25519+ChaCha20)",
-        "kyber_hybrid": "Post-Quantum (X25519+ML-KEM768)",
+    # preferujemy throughput_rps
+    if "throughput_rps" not in pivot.columns and "throughput_mb_s" in pivot.columns:
+        pivot["throughput_rps"] = pivot["throughput_mb_s"]
+    # czytelne nazwy algorytmów
+    suite_map = {
+        "x25519_aesgcm": "AES-GCM (AES-NI)",
+        "chacha20": "ChaCha20",
+        "kyber_hybrid": "Kyber-hybrydowy",
     }
-    p["algorithm"] = p.suite.map(sm).fillna(p.suite)
-    p["quantum_resistant"] = p.suite.apply(
-        lambda x: "Post-Quantum" if "kyber" in x else "Traditional"
+    pivot["algorithm"] = pivot.suite.map(suite_map).fillna(pivot.suite)
+    pivot["quantum_resistant"] = pivot.suite.apply(
+        lambda s: "Post-Quantum" if "kyber" in s else "Traditional"
     )
-    return p
+    return pivot
 
 
-def create_visualizations(df, run_dir, separate):
+def annotate_bars(ax, fmt="{:.0f}", offset=0.02):
+    for p in ax.patches:
+        h = p.get_height()
+        if pd.notna(h):
+            va = "bottom" if h >= 0 else "top"
+            y = h + offset * max(abs(h), 1)
+            ax.annotate(
+                fmt.format(h),
+                (p.get_x() + p.get_width() / 2, y),
+                ha="center",
+                va=va,
+                fontsize=8,
+            )
+
+
+def create_visualizations(df: pd.DataFrame, run_dir: Path, separate: bool):
     run_name = run_dir.name
     figs = Path("figures") / run_name / "analyze"
     figs.mkdir(exist_ok=True, parents=True)
     sns.set_palette("husl")
 
-    # overview 4-in-1
+    # === 1) TLS Overview (4-in-1) ===
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle("TLS Performance Analysis: Post-Quantum vs Traditional", fontsize=16)
-    if "handshake_ms" in df:
-        sns.boxplot(df, x="algorithm", y="handshake_ms", ax=axes[0, 0])
-        axes[0, 0].set_title("Handshake Latency (ms)")
-        axes[0, 0].tick_params(axis="x", rotation=45)
-    tcol = next((c for c in ["throughput_mb_s", "throughput_rps"] if c in df), None)
-    if tcol:
-        sns.boxplot(df, x="algorithm", y=tcol, ax=axes[0, 1])
-        axes[0, 1].set_title("Throughput")
-        axes[0, 1].tick_params(axis="x", rotation=45)
-    if "handshake_ms" in df:
-        sns.barplot(
-            df,
-            x="implementation",
-            y="handshake_ms",
-            hue="quantum_resistant",
-            ax=axes[1, 0],
-        )
-        axes[1, 0].set_title("Handshake by Implementation")
-        axes[1, 0].tick_params(axis="x", rotation=45)
-    if "response_time_s" in df:
-        sns.violinplot(df, x="quantum_resistant", y="response_time_s", ax=axes[1, 1])
-        axes[1, 1].set_title("Response Time (s)")
+    fig.suptitle("TLS Performance: Post-Quantum vs Traditional", fontsize=16)
+
+    # 1a) Handshake latency by algorithm
+    sns.boxplot(data=df, x="algorithm", y="handshake_ms", ax=axes[0, 0])
+    axes[0, 0].set_title("Handshake Latency (ms)")
+    axes[0, 0].tick_params(axis="x", rotation=45)
+
+    # 1b) Throughput by algorithm
+    sns.boxplot(data=df, x="algorithm", y="throughput_rps", ax=axes[0, 1])
+    axes[0, 1].set_title("Throughput (RPS)")
+    axes[0, 1].tick_params(axis="x", rotation=45)
+
+    # 1c) Handshake by implementation
+    ax1 = axes[1, 0]
+    sns.barplot(
+        data=df, x="implementation", y="handshake_ms", hue="quantum_resistant", ax=ax1
+    )
+    ax1.set_title("Handshake Latency by Implementation")
+    ax1.tick_params(axis="x", rotation=45)
+    annotate_bars(ax1, fmt="{:.0f}")
+
+    # 1d) Response time distribution
+    sns.violinplot(data=df, x="quantum_resistant", y="response_time_s", ax=axes[1, 1])
+    axes[1, 1].set_title("Response Time (s)")
+
     plt.tight_layout()
-    plt.savefig(figs / "tls_overview.png", dpi=300)
-    plt.close()
+    fig.savefig(figs / "tls_overview.png", dpi=300)
+    plt.close(fig)
 
+    # === 2) Separate plots ===
     if separate:
-        # handshake_latency
-        plt.figure(figsize=(8, 5))
-        sns.boxplot(df, x="algorithm", y="handshake_ms")
-        plt.title("Handshake Latency (ms)")
-        plt.xticks(rotation=45)
+        # 2a) Handshake latency by implementation
+        fig = plt.figure(figsize=(8, 5))
+        ax = sns.barplot(data=df, x="implementation", y="handshake_ms", hue="suite")
+        ax.set_title("Handshake Latency (ms) by Implementation")
+        ax.tick_params(axis="x", rotation=45)
+        annotate_bars(ax, fmt="{:.0f}")
         plt.tight_layout()
-        plt.savefig(figs / "handshake_latency.png", dpi=300)
-        plt.close()
-        # throughput
-        plt.figure(figsize=(8, 5))
-        sns.boxplot(df, x="algorithm", y=tcol)
-        plt.title("Throughput")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.savefig(figs / "throughput.png", dpi=300)
-        plt.close()
-        # impl_handshake
-        plt.figure(figsize=(8, 5))
-        sns.barplot(df, x="implementation", y="handshake_ms", hue="quantum_resistant")
-        plt.title("Handshake by Implementation")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.savefig(figs / "impl_handshake.png", dpi=300)
-        plt.close()
-        # response_dist
-        plt.figure(figsize=(8, 5))
-        sns.violinplot(df, x="quantum_resistant", y="response_time_s")
-        plt.title("Response Time Distribution")
-        plt.tight_layout()
-        plt.savefig(figs / "response_dist.png", dpi=300)
-        plt.close()
+        fig.savefig(figs / "handshake_latency.png", dpi=300)
+        plt.close(fig)
 
-    # post-quantum impact
-    if "quantum_resistant" in df:
-        metrics = [
-            m for m in ["handshake_ms", "throughput_rps", "response_time_s"] if m in df
-        ]
-        fig2, axs2 = plt.subplots(1, len(metrics), figsize=(6 * len(metrics), 6))
-        if len(metrics) == 1:
+        # 2b) Throughput by implementation
+        fig = plt.figure(figsize=(8, 5))
+        ax = sns.barplot(data=df, x="implementation", y="throughput_rps", hue="suite")
+        ax.set_title("Throughput (RPS) by Implementation")
+        ax.tick_params(axis="x", rotation=45)
+        annotate_bars(ax, fmt="{:.1f}")
+        plt.tight_layout()
+        fig.savefig(figs / "throughput.png", dpi=300)
+        plt.close(fig)
+
+        # 2c) Handshake latency by algorithm
+        fig = plt.figure(figsize=(8, 5))
+        ax = sns.boxplot(data=df, x="algorithm", y="handshake_ms")
+        ax.set_title("Handshake Latency (ms) by Algorithm")
+        ax.tick_params(axis="x", rotation=45)
+        plt.tight_layout()
+        fig.savefig(figs / "handshake_by_algo.png", dpi=300)
+        plt.close(fig)
+
+        # 2d) Throughput by algorithm
+        fig = plt.figure(figsize=(8, 5))
+        ax = sns.boxplot(data=df, x="algorithm", y="throughput_rps")
+        ax.set_title("Throughput (RPS) by Algorithm")
+        ax.tick_params(axis="x", rotation=45)
+        plt.tight_layout()
+        fig.savefig(figs / "throughput_by_algo.png", dpi=300)
+        plt.close(fig)
+
+        # 2e) Response time distribution
+        fig = plt.figure(figsize=(8, 5))
+        ax = sns.violinplot(data=df, x="quantum_resistant", y="response_time_s")
+        ax.set_title("Response Time Distribution")
+        plt.tight_layout()
+        fig.savefig(figs / "response_dist.png", dpi=300)
+        plt.close(fig)
+
+    # === 3) Post-Quantum Impact ===
+    metrics = ["handshake_ms", "throughput_rps", "response_time_s"]
+    present = [m for m in metrics if m in df]
+    if present:
+        fig2, axs2 = plt.subplots(1, len(present), figsize=(6 * len(present), 6))
+        if len(present) == 1:
             axs2 = [axs2]
-        for ax, m in zip(axs2, metrics):
-            sns.boxplot(df, x="quantum_resistant", y=m, ax=ax)
+        for ax, m in zip(axs2, present):
+            sns.boxplot(data=df, x="quantum_resistant", y=m, ax=ax)
             trad = df[df.quantum_resistant == "Traditional"][m]
             pq = df[df.quantum_resistant == "Post-Quantum"][m]
             if not trad.empty and not pq.empty:
@@ -206,27 +242,28 @@ def create_visualizations(df, run_dir, separate):
             else:
                 ax.set_title(m)
         plt.tight_layout()
-        plt.savefig(figs / "post_quantum_impact.png", dpi=300)
-        plt.close()
+        fig2.savefig(figs / "post_quantum_impact.png", dpi=300)
+        plt.close(fig2)
 
-    # implementation comparison
-    impls = df.implementation.unique()
-    if len(impls) > 1:
+    # === 4) Implementation Comparison (2-in-1) ===
+    if df.implementation.nunique() > 1:
         fig3, axs3 = plt.subplots(1, 2, figsize=(14, 6))
-        fig3.suptitle("Implementation Comparison")
-        if "handshake_ms" in df:
-            sns.barplot(
-                df, x="implementation", y="handshake_ms", hue="suite", ax=axs3[0]
-            )
-            axs3[0].set_title("Handshake Latency")
-            axs3[0].tick_params(axis="x", rotation=45)
-        if tcol:
-            sns.barplot(df, x="implementation", y=tcol, hue="suite", ax=axs3[1])
-            axs3[1].set_title("Throughput")
-            axs3[1].tick_params(axis="x", rotation=45)
+        fig3.suptitle("Implementation Comparison", fontsize=14)
+        ax0 = axs3[0]
+        sns.barplot(data=df, x="implementation", y="handshake_ms", hue="suite", ax=ax0)
+        ax0.set_title("Handshake Latency")
+        ax0.tick_params(axis="x", rotation=45)
+        annotate_bars(ax0, fmt="{:.0f}")
+        ax1 = axs3[1]
+        sns.barplot(
+            data=df, x="implementation", y="throughput_rps", hue="suite", ax=ax1
+        )
+        ax1.set_title("Throughput (RPS)")
+        ax1.tick_params(axis="x", rotation=45)
+        annotate_bars(ax1, fmt="{:.1f}")
         plt.tight_layout()
-        plt.savefig(figs / "impl_comparison.png", dpi=300)
-        plt.close()
+        fig3.savefig(figs / "impl_comparison.png", dpi=300)
+        plt.close(fig3)
 
 
 def main():
