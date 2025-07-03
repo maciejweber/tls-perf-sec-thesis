@@ -1,3 +1,4 @@
+#1
 # #!/usr/bin/env bash
 # set -e
 
@@ -10,6 +11,36 @@
 
 # kill "$KEEP"
 
+#2
+#!/usr/bin/env bash
+# set -euo pipefail
+
+# caffeinate -dims &
+# KEEP=$!
+
+# echo "🔐 AES-NI ON"
+# PAYLOAD_SIZE_MB=1024 \
+# ITERATIONS=30 \
+# NETEM=1 \
+# NETEM_DELAY=50 \
+# NETEM_LOSS=0.01 \
+# MEASURE_RESOURCES=1 \
+# ./scripts/run_all.sh
+
+# echo "🚫 AES-NI OFF"
+# DISABLE_AESNI=1 \
+# PAYLOAD_SIZE_MB=1024 \
+# ITERATIONS=30 \
+# NETEM=1 \
+# NETEM_DELAY=50 \
+# NETEM_LOSS=0.01 \
+# MEASURE_RESOURCES=1 \
+# ./scripts/run_all.sh
+
+# kill "$KEEP"
+
+
+#3
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -18,7 +49,7 @@ KEEP=$!
 
 echo "🔐 AES-NI ON"
 PAYLOAD_SIZE_MB=1024 \
-ITERATIONS=30 \
+ITERATIONS=5 \
 NETEM=1 \
 NETEM_DELAY=50 \
 NETEM_LOSS=0.01 \
@@ -27,8 +58,8 @@ MEASURE_RESOURCES=1 \
 
 echo "🚫 AES-NI OFF"
 DISABLE_AESNI=1 \
-PAYLOAD_SIZE_MB=1024 \
-ITERATIONS=30 \
+PAYLOAD_SIZE_MB=10 \
+ITERATIONS=5 \
 NETEM=1 \
 NETEM_DELAY=50 \
 NETEM_LOSS=0.01 \
