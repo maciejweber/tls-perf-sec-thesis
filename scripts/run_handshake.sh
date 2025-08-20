@@ -3,6 +3,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST=localhost
 
+# macOS: Docker Desktop nie wspiera --network host. Ustaw odpowiedni host i parametry docker.
+if [[ "$(uname)" == "Darwin" ]]; then
+  HOST="host.docker.internal"
+  DOCKER_NET_ARGS=()
+else
+  DOCKER_NET_ARGS=(--network host)
+fi
+
 if [[ $# -eq 1 ]]; then
   PORTS=("$1")
 else
@@ -15,52 +23,62 @@ OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
 # FIXED: Use original working approach for ALL ports (no SNI)
 measure() {
   local port=$1
-
+  # Use OpenSSL inside nginx container (has oqsprovider and OpenSSL installed)
   case $port in
     4431)
-      # X25519 + AES-GCM - same style as original 8443
-      docker run --rm --network host \
-        -v "$ROOT_DIR/certs:/certs:ro" \
-        openquantumsafe/oqs-ossl3 \
-          sh -c "
-            time -p sh -c \"
-              openssl s_client -brief \
-                -provider default \
-                -tls1_3 \
-                -CAfile /certs/ca.pem \
-                -connect localhost:4431 </dev/null >/dev/null 2>&1
-            \" 2>&1 | grep real | awk \"{print \\\$2}\"
-          "
+      docker exec -e OPENSSL_ia32cap="${OPENSSL_ia32cap:-}" tls-perf-nginx sh -lc '
+        time -p sh -c "
+          /usr/local/bin/openssl s_client -brief \
+            -provider default \
+            -tls1_3 \
+            -CAfile /etc/nginx/certs/ca.pem \
+            -connect '"${HOST}"':4431 </dev/null >/dev/null 2>&1
+        " 2>&1 | grep real | awk "{print \$2}"
+      '
       ;;
     4432)
-      # X25519 + ChaCha20 - same style as original 8443
-      docker run --rm --network host \
-        -v "$ROOT_DIR/certs:/certs:ro" \
-        openquantumsafe/oqs-ossl3 \
-          sh -c "
-            time -p sh -c \"
-              openssl s_client -brief \
-                -provider default \
-                -tls1_3 \
-                -CAfile /certs/ca.pem \
-                -connect localhost:4432 </dev/null >/dev/null 2>&1
-            \" 2>&1 | grep real | awk \"{print \\\$2}\"
-          "
+      docker exec -e OPENSSL_ia32cap="${OPENSSL_ia32cap:-}" tls-perf-nginx sh -lc '
+        time -p sh -c "
+          /usr/local/bin/openssl s_client -brief \
+            -provider default \
+            -tls1_3 \
+            -CAfile /etc/nginx/certs/ca.pem \
+            -connect '"${HOST}"':4432 </dev/null >/dev/null 2>&1
+        " 2>&1 | grep real | awk "{print \$2}"
+      '
       ;;
     8443)
-      # X25519MLKEM768 + AES-GCM - exact original working command
-      docker run --rm --network host \
-        -v "$ROOT_DIR/certs:/certs:ro" \
-        openquantumsafe/oqs-ossl3 \
-          sh -c '
-            time -p sh -c "
-              openssl s_client -brief \
-                -provider default -provider oqsprovider \
-                -groups X25519MLKEM768 -tls1_3 \
-                -CAfile /certs/ca.pem \
-                -connect localhost:8443 </dev/null >/dev/null 2>&1
-            " 2>&1 | grep real | awk "{print \$2}"
-          '
+      docker exec -e OPENSSL_ia32cap="${OPENSSL_ia32cap:-}" tls-perf-nginx sh -lc '
+        time -p sh -c "
+          /usr/local/bin/openssl s_client -brief \
+            -provider default -provider oqsprovider \
+            -groups X25519MLKEM768 -tls1_3 \
+            -CAfile /etc/nginx/certs/ca.pem \
+            -connect '"${HOST}"':8443 </dev/null >/dev/null 2>&1
+        " 2>&1 | grep real | awk "{print \$2}"
+      '
+      ;;
+    4434)
+      docker exec -e OPENSSL_ia32cap="${OPENSSL_ia32cap:-}" tls-perf-nginx sh -lc '
+        time -p sh -c "
+          /usr/local/bin/openssl s_client -brief \
+            -provider default \
+            -tls1_3 \
+            -CAfile /etc/nginx/certs/ca.pem \
+            -connect '"${HOST}"':4434 </dev/null >/dev/null 2>&1
+        " 2>&1 | grep real | awk "{print \$2}"
+      '
+      ;;
+    4435)
+      docker exec -e OPENSSL_ia32cap="${OPENSSL_ia32cap:-}" tls-perf-nginx sh -lc '
+        time -p sh -c "
+          /usr/local/bin/openssl s_client -brief \
+            -provider default \
+            -tls1_3 \
+            -CAfile /etc/nginx/certs/ca.pem \
+            -connect '"${HOST}"':4435 </dev/null >/dev/null 2>&1
+        " 2>&1 | grep real | awk "{print \$2}"
+      '
       ;;
     *)
       echo "Unknown port: $port" >&2
@@ -157,20 +175,22 @@ for PORT in "${PORTS[@]}"; do
        samples: ($total|tonumber),
        successful_measurements: ($successful|tonumber),
        failed_measurements: (($total|tonumber) - ($successful|tonumber)),
-       measurement_method: "docker_openssl_client_no_sni",
+       measurement_method: "openssl_in_nginx_container",
        raw_measurements: $measurements,
        algorithm: (
          if ($port|tonumber) == 4431 then "X25519_AES-GCM"
          elif ($port|tonumber) == 4432 then "X25519_ChaCha20"  
          elif ($port|tonumber) == 8443 then "X25519MLKEM768_AES-GCM"
+         elif ($port|tonumber) == 4434 then "X25519_AES-GCM_wolfSSL"
+         elif ($port|tonumber) == 4435 then "X25519_ChaCha20_wolfSSL"
          else "Unknown" end
        ),
-       note: "Using original working approach without SNI"
+       note: "Using nginx container OpenSSL client"
      }' > "$OUTDIR/handshake_${PORT}.json"
 
   echo ""
 done
 
 echo "✅ Handshake performance testing completed"
-echo "📊 All measurements used consistent Docker OpenSSL clients (original style)"
+echo "📊 All measurements used OpenSSL from nginx container"
 echo "📁 Results saved in: $OUTDIR/handshake_*.json"

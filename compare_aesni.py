@@ -98,4 +98,21 @@ for metric, ylabel, fname in [
     plt.close(fig)
     print(f"✓ zapisano wykres: {out_path.absolute()}")
 
+# === Heatmap (suite x implementation) for delta% ===
+for metric, fname in [
+    ("mean_ms", "aesni_delta_mean_ms_heatmap.png"),
+    ("rps", "aesni_delta_rps_heatmap.png"),
+]:
+    sub = dfp[dfp.metric == metric]
+    if sub.empty:
+        continue
+    heat = sub.pivot(index="suite", columns="implementation", values="delta_percent")
+    fig, ax = plt.subplots(figsize=(8, 5))
+    sns.heatmap(heat, annot=True, fmt="+.1f", cmap="RdBu_r", center=0, ax=ax)
+    ax.set_title(f"AES-NI Δ% heatmap ({metric})")
+    out_path = figures_dir / fname
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"✓ zapisano heatmapę: {out_path.absolute()}")
+
 print(f"✅ wykresy zapisane w {figures_dir.absolute()}")

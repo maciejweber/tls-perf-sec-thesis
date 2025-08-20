@@ -1,0 +1,120 @@
+# 1) AES-128-GCM / X25519  ── port 4431
+docker exec -i tls-perf-nginx \
+  openssl s_client -brief -tls1_3 \
+      -ciphersuites TLS_AES_128_GCM_SHA256 \
+      -groups X25519 \
+      -CAfile /etc/nginx/certs/ca.pem \
+      -connect 127.0.0.1:4431 </dev/null
+
+# 2) ChaCha20-Poly1305 / X25519  ── port 4432
+docker exec -i tls-perf-nginx \
+  openssl s_client -brief -tls1_3 \
+      -ciphersuites TLS_CHACHA20_POLY1305_SHA256 \
+      -groups X25519 \
+      -CAfile /etc/nginx/certs/ca.pem \
+      -connect 127.0.0.1:4432 </dev/null
+
+# 3) Hybryda X25519-ML-KEM-768  ── port 8443
+docker exec -i tls-perf-nginx \
+  openssl s_client -brief -tls1_3 \
+      -provider default -provider oqsprovider \
+      -groups x25519mlkem768 \
+      -ciphersuites TLS_AES_256_GCM_SHA384 \
+      -CAfile /etc/nginx/certs/ca.pem \
+      -connect 127.0.0.1:8443 </dev/null
+
+
+
+docker exec -i tls-perf-nginx \
+  openssl s_time -connect 127.0.0.1:4432 -time 10 -www / -tls1_3 \
+                 -CAfile /etc/nginx/certs/ca.pem -new
+
+
+
+docker exec -i tls-perf-nginx \
+  openssl s_time -connect 127.0.0.1:4431 -time 10 -www / -tls1_3 \
+                 -CAfile /etc/nginx/certs/ca.pem -new
+
+
+
+docker exec -i tls-perf-nginx \
+  openssl s_time -connect 127.0.0.1:8443 -time 10 -www / -tls1_3 \
+                 -ciphersuites TLS_AES_256_GCM_SHA384 \
+                 -CAfile /etc/nginx/certs/ca.pem \
+                 -provider default -provider oqsprovider -new
+
+
+
+
+docker exec benchmark-client wrk2 -t4 -c100 -d30s -L -R 1000 https://nginx-tls:4431/
+
+
+
+WOLFSSL
+
+docker-compose exec wolf-server /bin/sh -c 'echo "test" | ./examples/client/client -h localhost -p 11111 -v 4 -l TLS13-AES256-GCM-SHA384'
+docker-compose exec wolf-server /bin/sh -c 'echo "test" | ./examples/client/client -h localhost -p 11111 -v 4 -l TLS13-CHACHA20-POLY1305-SHA256'
+docker-compose exec wolf-server /bin/sh -c 'echo "test" | ./examples/client/client -h localhost -p 11111 -v 4 --pqc X25519_ML_KEM_768'
+
+
+
+docker-compose exec wolf-server /bin/sh -c 'echo "test" | ./wolfcrypt/benchmark/benchmark -aes-gcm -chacha20'
+
+
+docker-compose exec wolf-server /wolfssl_src/wolfcrypt/benchmark/benchmark -aes-gcm -chacha20 -kyber
+
+
+docker-compose exec wolf-server perf stat -e cpu-clock,task-clock,context-switches,page-faults /tmp/wolfssl/wolfcrypt/benchmark/benchmark -aes-gcm
+
+
+docker-compose exec wolf-server perf stat -e cpu-clock,task-clock,context-switches,page-faults /tmp/wolfssl/wolfcrypt/benchmark/benchmark -chacha20 
+docker-compose exec wolf-server perf stat -e cpu-clock,task-clock,context-switches,page-faults /tmp/wolfssl/wolfcrypt/benchmark/benchmark -kyber 
+
+# === NEW: Scripts and analysis shortcuts ===
+
+# Uruchomienie stosu (nginx + backend)
+docker compose up -d --build nginx-tls backend-sink
+
+# Handshake (wszystkie porty lub jeden)
+./scripts/run_handshake.sh
+./scripts/run_handshake.sh 4431
+
+# Throughput (POST z pełnym body)
+PAYLOAD_SIZE_MB=4 REQUESTS=50 ./scripts/run_bulk.sh
+PAYLOAD_SIZE_MB=256 ./scripts/run_bulk.sh 4431
+
+# 0-RTT (early data jako HTTP POST)
+EARLY_DATA_MB=8 ./scripts/run_0rtt.sh
+
+# Symulacja sieci (NetEm) – włączenie i wyłączenie
+./scripts/netem_mac.sh 50 0.01
+./scripts/netem_mac.sh clear
+
+# Stabilny bieg porównawczy (bez NetEm, tylko AES-GCM/ChaCha20)
+ITERATIONS=5 SUITES='x25519_aesgcm chacha20' TESTS='handshake bulk' \
+NETEM=0 MEASURE_RESOURCES=0 PAYLOAD_SIZE_MB=4 ./scripts/run_all.sh
+
+# Bieg z pomiarem zasobów (tylko AES-GCM/bulk)
+ITERATIONS=5 IMPLEMENTATIONS='openssl' SUITES='x25519_aesgcm' TESTS='bulk' \
+MEASURE_RESOURCES=1 PAYLOAD_SIZE_MB=4 ./scripts/run_all.sh
+
+# AES-NI OFF (przykład dla handshake/bulk)
+OPENSSL_ia32cap="~0x200000200000000" ./scripts/run_handshake.sh 4431
+OPENSSL_ia32cap="~0x200000200000000" PAYLOAD_SIZE_MB=10 ./scripts/run_bulk.sh 4431
+
+# OpenSSL speed (primitives)
+docker exec -i tls-perf-nginx openssl speed -elapsed -evp aes-256-gcm | tee results/openssl_speed_aes.txt
+docker exec -i tls-perf-nginx openssl speed -elapsed -evp chacha20-poly1305 | tee results/openssl_speed_chacha.txt
+
+# wolfCrypt benchmark (primitives)
+docker-compose exec wolfssl-server /usr/local/bin/wolf-benchmark -aes-gcm -chacha20 | tee results/wolfcrypt_bench.txt
+
+# Pełny handshake + POST (bez resumption)
+EARLY_DATA_MB=8 ./scripts/run_full_post.sh 4431
+
+# Analiza wyników (wykresy)
+python3 -m venv .venv && . .venv/bin/activate && pip install pandas matplotlib seaborn
+. .venv/bin/activate && MPLBACKEND=Agg python3 analyze.py -r results/latest -s
+
+# Restart nginx (np. po zmianie certów RSA/ECDSA)
+docker compose restart nginx-tls 

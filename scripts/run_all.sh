@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🔑  requesting sudo to keep powermetrics alive..."
-sudo -v
-( while true; do sudo -n true; sleep 240; done ) &
-SUDO_KEEP=$!
-trap "kill $SUDO_KEEP 2>/dev/null" EXIT
-
-IMPLEMENTATIONS=(openssl boringssl wolfssl)
-SUITES=(x25519_aesgcm chacha20 kyber_hybrid)
-TESTS=(handshake bulk 0rtt)
+# Allow env overrides for flexibility
+IMPLEMENTATIONS=(${IMPLEMENTATIONS:-openssl wolfssl})
+SUITES=(${SUITES:-x25519_aesgcm chacha20 kyber_hybrid})
+TESTS=(${TESTS:-handshake bulk 0rtt})
 ITERATIONS=${ITERATIONS:-30}
 NETEM=${NETEM:-0}
 MEASURE_RESOURCES=${MEASURE_RESOURCES:-0}
 PAYLOAD_SIZE_MB=${PAYLOAD_SIZE_MB:-1}
+CONCURRENCY=${CONCURRENCY:-1}
 
 ################################################################################
 ### AES-NI section – set DISABLE_AESNI=1 before running to disable the opcode ###
@@ -71,6 +67,7 @@ Suites: ${SUITES[@]}
 Tests: ${TESTS[@]}
 REQUESTS: ${REQUESTS:-100}
 PAYLOAD_SIZE_MB: $PAYLOAD_SIZE_MB
+CONCURRENCY: $CONCURRENCY
 NetEm: $([[ $NETEM -eq 1 ]] && echo "Yes (delay=${NETEM_DELAY}ms, loss=${NETEM_LOSS})" || echo "No")
 Resource Measurement: $([[ $MEASURE_RESOURCES -eq 1 ]] && echo "Yes" || echo "No")
 EOF
@@ -81,11 +78,13 @@ CSV="$RUN_DIR/bench.csv"
 echo "implementation,suite,test,run,metric,value,unit" >"$CSV"
 
 port() {
-  case $1 in
-    x25519_aesgcm) echo 4431 ;;
-    chacha20)      echo 4432 ;;
-    kyber_hybrid)  echo 8443 ;;
-  esac
+  local impl=$1 suite=$2
+  if   [[ $impl == openssl && $suite == x25519_aesgcm ]]; then echo 4431
+  elif [[ $impl == openssl && $suite == chacha20      ]]; then echo 4432
+  elif [[ $impl == openssl && $suite == kyber_hybrid  ]]; then echo 8443
+  elif [[ $impl == wolfssl  && $suite == x25519_aesgcm ]]; then echo 4434
+  elif [[ $impl == wolfssl  && $suite == chacha20      ]]; then echo 4435
+  else echo ""; fi
 }
 
 unit() {
@@ -98,6 +97,8 @@ unit() {
     resource_cpu_freq_ghz) echo GHz;;
     package_watts) echo W;;
     throughput_mb_s) echo "MB/s";;
+    avg_time_s) echo s;;
+    ttfb_s) echo s;;
     *) echo -;;
   esac
 }
@@ -108,7 +109,9 @@ pairs() {
     | map(
         if   .key|test("avg_(request_)?time(_s)?") then {k:"mean_time_s",v:.value}
         elif .key=="requests_per_second"           then {k:"rps",v:.value}
-        elif .key|test("^(host|port|config|successful_|total_)") then empty
+        elif .key|test("^(host|port|config|successful_|total_|concurrency|note|measurement_|algorithm|payload_|throughput_|method)") then empty
+        elif .key=="ttfb_s"                         then {k:"ttfb_s",v:.value}
+        elif .key=="avg_time"                       then {k:"avg_time_s",v:.value}
         else {k:.key,v:.value} end )
     | .[] | "\(.k) \(.v)"
   ' "$1"
@@ -118,18 +121,31 @@ run_once() {
   local impl=$1 suite=$2 test=$3 run=$4
   echo "▶ $impl/$suite/$test #$run"
   local prt json
-  prt=$(port "$suite")
+  prt=$(port "$impl" "$suite")
+
+  if [[ -z "$prt" ]]; then
+    echo "  ⏭️  Skipping unsupported combo ($impl/$suite)"
+    return
+  fi
+
+  # Skip 0-RTT for wolfssl
+  if [[ "$impl" == "wolfssl" && "$test" == "0rtt" ]]; then
+    echo "  ⏭️  Skipping 0-RTT for wolfssl"
+    return
+  fi
 
   case $test in
     handshake) "$ROOT_DIR/scripts/run_handshake.sh" "$prt" >/dev/null ;;
     bulk)      "$ROOT_DIR/scripts/run_bulk.sh"       "$prt" >/dev/null ;;
     0rtt)      "$ROOT_DIR/scripts/run_0rtt.sh"       "$prt" >/dev/null ;;
+    ttfb)      "$ROOT_DIR/scripts/run_ttfb.sh"       "$prt" >/dev/null || true ;;
   esac
 
   case $test in
     handshake) json="$ROOT_DIR/results/handshake_${prt}.json" ;;
     bulk)      json="$ROOT_DIR/results/bulk_${prt}.json"      ;;
     0rtt)      json="$ROOT_DIR/results/simple_${prt}.json"    ;;
+    ttfb)      json="$ROOT_DIR/results/ttfb_${prt}.json"      ;;
   esac
 
   if [[ ! -f "$json" ]]; then
@@ -169,6 +185,7 @@ run_once() {
 
 export -f run_once port unit pairs
 export PAYLOAD_SIZE_MB
+export CONCURRENCY
 
 START_TIME=$(date +%s)
 
@@ -177,6 +194,7 @@ echo "   AES-NI:          $AESNI_STATUS"
 echo "   Iterations:      $ITERATIONS"
 echo "   Resource meas.:  $([[ $MEASURE_RESOURCES -eq 1 ]] && echo Enabled || echo Disabled)"
 echo "   Payload size:    ${PAYLOAD_SIZE_MB}MB"
+echo "   Concurrency:     ${CONCURRENCY}"
 echo "   Implementations: ${IMPLEMENTATIONS[*]}"
 echo "   Cipher suites:   ${SUITES[*]}"
 echo "   Tests:           ${TESTS[*]}"

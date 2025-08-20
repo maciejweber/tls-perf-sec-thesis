@@ -1,0 +1,5 @@
+POST /upload HTTP/1.1
+Host: host.docker.internal
+Content-Length: 0
+Connection: close
+

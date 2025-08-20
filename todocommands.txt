@@ -1,0 +1,69 @@
+# Plan testów i benchmarków do pracy dyplomowej
+
+################################################################################
+# 1. Benchmarki surowych algorytmów (Crypto Primitives)
+# Cel: Porównanie "gołej" wydajności operacji kryptograficznych.
+################################################################################
+# 1.1. wolfCrypt
+#   - Porównanie: AES-GCM vs. ChaCha20 vs. Kyber
+#   - Narzędzie: /tmp/wolfssl/wolfcrypt/benchmark/benchmark
+#   - Metryki: perf stat (cykle, czas, etc.)
+#   - Komenda: docker-compose exec wolf-server perf stat -e cpu-clock,task-clock,context-switches,page-faults /tmp/wolfssl/wolfcrypt/benchmark/benchmark -aes-gcm
+#   - Wynik (przykład): 4441.123 MiB/s, 13027.84 msec cpu-clock
+#
+#   - Porównanie: ChaCha20
+#   - Komenda: docker-compose exec wolf-server perf stat -e cpu-clock,task-clock,context-switches,page-faults /tmp/wolfssl/wolfcrypt/benchmark/benchmark -chacha20
+#   - Wynik (przykład): 2024.328 MiB/s, 1021.54 msec cpu-clock
+#
+#   - Porównanie: Kyber
+#   - Komenda: docker-compose exec wolf-server perf stat -e cpu-clock,task-clock,context-switches,page-faults /tmp/wolfssl/wolfcrypt/benchmark/benchmark -kyber
+#   - Wynik (przykład): 18032.26 msec cpu-clock (ops/sec są ważniejsze)
+#
+# 1.2. OpenSSL
+#   - Porównanie: AES-GCM vs. ChaCha20
+#   - Narzędzie: openssl speed
+#   - Metryki: Wyniki z samego narzędzia.
+#   - Komenda (AES): docker-compose exec nginx-tls openssl speed -elapsed -evp aes-256-gcm
+#   - Wynik (przykład, 8k block): 3677995.01k (~3.6 GB/s)
+#
+#   - Komenda (ChaCha20): docker-compose exec nginx-tls openssl speed -elapsed -evp chacha20-poly1305
+#   - Wynik (przykład, 8k block): 3530050.22k (~3.5 GB/s)
+
+################################################################################
+# 2. Benchmarki czasu handshake'u (Latency)
+# Cel: Zmierzenie, ile trwa nawiązanie pełnego połączenia TLS.
+################################################################################
+# 2.1. nginx-oqs (OpenSSL)
+#   - Porównanie: AES vs. ChaCha20 vs. Kyber Hybrid
+#   - Narzędzie: openssl s_time
+#   - Metryki: perf stat (cykle, czas, etc.)
+#
+# 2.2. wolfssl (surowy TLS)
+#   - Porównanie: AES vs. ChaCha20 vs. Kyber Hybrid
+#   - Narzędzie: wolf-client
+#   - Metryki: perf stat (cykle, czas, etc.)
+
+################################################################################
+# 3. Benchmarki przepustowości (Throughput)
+# Cel: Zmierzenie wydajności szyfrowania danych w trakcie sesji.
+################################################################################
+# 3.1. nginx-oqs (OpenSSL)
+#   - Porównanie: AES-GCM vs. ChaCha20
+#   - Narzędzie: wrk2
+#   - Metryki: Transfer (MB/s), opóźnienia (p95, p99).
+
+################################################################################
+# 4. Wpływ typu certyfikatu na handshake
+# Cel: Sprawdzenie, czy algorytm podpisu certyfikatu ma wpływ na latencję.
+################################################################################
+# 4.1. nginx-oqs (OpenSSL)
+#   - Porównanie: Certyfikat RSA-2048 vs. ECDSA-P256
+#   - Narzędzie: openssl s_time
+#   - Metryki: Czas handshake'u.
+
+################################################################################
+# 5. Dalsze kroki (do zaplanowania)
+################################################################################
+# 5.1. Symulacja sieci z `tc`
+# 5.2. Analiza i benchmark `kemtls-proxy`
+# 5.3. Badanie wpływu 0-RTT na wydajność. 

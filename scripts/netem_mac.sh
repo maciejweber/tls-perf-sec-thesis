@@ -7,11 +7,11 @@ TAG="# TLS_THESIS_NETEM"
 PIPE=1
 
 usage() { 
-    echo "Usage: $0 <delay_ms> <loss_frac_0-1> | clear"
+    echo "Usage: $0 <delay_ms> <loss_frac_0-1> [jitter_ms] | clear"
     echo "Examples:"
-    echo "  $0 50 0.01     # 50ms delay, 1% packet loss"
-    echo "  $0 100 0.05    # 100ms delay, 5% packet loss"
-    echo "  $0 clear       # remove all rules"
+    echo "  $0 50 0.01           # 50ms delay, 1% packet loss"
+    echo "  $0 100 0.005 10      # +jitter=10ms (note: macOS dummynet ignores jitter)"
+    echo "  $0 clear             # remove all rules"
     exit 1
 }
 
@@ -35,6 +35,7 @@ clear_netem() {
 apply_netem() {
     local delay_ms="$1"
     local loss_frac="$2"
+    local jitter_ms="${3:-0}"
         
     if ! [[ "$delay_ms" =~ ^[0-9]+$ ]] || (( delay_ms < 0 || delay_ms > 1000 )); then
         echo "❌ Delay musi być liczbą 0-1000 ms"
@@ -45,10 +46,18 @@ apply_netem() {
         echo "❌ Loss musi być liczbą zmiennoprzecinkową 0-1"
         exit 1
     fi
+    
+    if ! [[ "$jitter_ms" =~ ^[0-9]+$ ]]; then
+        echo "❌ Jitter musi być liczbą całkowitą (ms)"
+        exit 1
+    fi
         
     loss_pct=$(echo "scale=1; $loss_frac * 100" | bc)
     
-    echo "🌐 Konfiguruję NetEm: delay=${delay_ms}ms, loss=${loss_pct}%"
+    echo "🌐 Konfiguruję NetEm: delay=${delay_ms}ms, loss=${loss_pct}%, jitter=${jitter_ms}ms"
+    if [[ "$jitter_ms" != "0" ]]; then
+        echo "ℹ️  Uwaga: macOS dummynet nie wspiera bezpośrednio jitteru jak Linux netem; parametr zostanie zignorowany."
+    fi
         
     if [[ ! -f "$PF_BACKUP" ]]; then
         sudo cp "$PF_CONF" "$PF_BACKUP"
@@ -66,7 +75,7 @@ EOF
     
     sudo pfctl -f "$PF_CONF" -e
     
-    echo "✅ NetEm aktywny: delay=${delay_ms}ms, loss=${loss_pct}%"
+    echo "✅ NetEm aktywny: delay=${delay_ms}ms, loss=${loss_pct}% (jitter=${jitter_ms}ms ignored on macOS)"
     
     echo "📊 Status:"
     sudo dnctl list | grep "pipe $PIPE" || echo "  (brak aktywnych pipe)"
@@ -74,7 +83,7 @@ EOF
 
 if [[ "$(uname)" != "Darwin" ]]; then
     echo "❌ Ten skrypt działa tylko na macOS"
-    echo "   Dla Linux użyj: tc qdisc add dev eth0 root netem delay ${1}ms loss ${2}%"
+    echo "   Dla Linux użyj: tc qdisc add dev eth0 root netem delay ${1}ms ${3:-0}ms distribution normal loss $(echo "$2 * 100" | bc)%"
     exit 1
 fi
 
@@ -82,8 +91,8 @@ if [[ $# -eq 0 ]]; then
     usage
 elif [[ $# -eq 1 && "$1" == "clear" ]]; then
     clear_netem
-elif [[ $# -eq 2 ]]; then
-    apply_netem "$1" "$2"
+elif [[ $# -ge 2 && $# -le 3 ]]; then
+    apply_netem "$1" "$2" "${3:-0}"
 else
     usage
 fi

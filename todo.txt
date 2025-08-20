@@ -1,0 +1,4 @@
+1. testowanie wolfssl za pomoca wrk (openssl juz dziala i da sie testowac)
+2. perf do pomiaru CPU
+3. uzywanie roznych certyfikatow (jakos trzeba to ladnie poukladac)
+4. tc do symulowania sieci

@@ -1,9 +1,14 @@
 version: "3.9"
 
+networks:
+  tls-perf-net:
+    driver: bridge
+
 services:
   nginx-tls:
     build: ./docker/nginx-oqs
     container_name: tls-perf-nginx
+    privileged: true
     ports:
       - "4431:4431" # AES-GCM
       - "4432:4432" # ChaCha20-Poly1305
@@ -13,3 +18,83 @@ services:
       - ./docker/nginx-oqs/conf.d:/etc/nginx/conf.d:ro
     environment:
       - TZ=Europe/Warsaw
+    networks:
+      - tls-perf-net
+
+  benchmark-client:
+    build: ./docker/benchmark-client
+    container_name: benchmark-client
+    privileged: true
+    tty: true
+    stdin_open: true
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      - nginx-tls
+      - wolf-server
+    networks:
+      - tls-perf-net
+
+  wolf-cli:
+    build: ./docker/wolfssl-cli
+    container_name: wolfssl-cli
+    tty: true
+    stdin_open: true
+    environment:
+      - WOLFSSL_HOME=/wolfssl_src
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      - wolf-server
+      - lighttpd-wolfssl
+    networks:
+      - tls-perf-net
+
+  wolf-server:
+    build: ./docker/wolfssl-server
+    container_name: wolfssl-server
+    privileged: true
+    tty: true
+    stdin_open: true
+    environment:
+      - WOLFSSL_HOME=/wolfssl_src
+    ports:
+      - "11111:11111"
+    volumes:
+      - ./certs:/certs:ro
+    networks:
+      - tls-perf-net
+
+  lighttpd-wolfssl:
+    build: ./docker/lighttpd-wolfssl
+    container_name: lighttpd-wolfssl
+    ports:
+      - "4434:4434"
+      - "4435:4435"
+      - "4436:4436"
+    volumes:
+      - ./certs:/certs:ro
+      - ./docker/lighttpd-wolfssl/lighttpd.conf:/etc/lighttpd/lighttpd.conf:ro
+    networks:
+      - tls-perf-net
+
+  lighttpd-openssl:
+    build: ./docker/lighttpd-openssl
+    container_name: lighttpd-openssl
+    ports:
+      - "4437:4435"
+    volumes:
+      - ./certs:/certs:ro
+      - ./docker/lighttpd-openssl/lighttpd.conf:/etc/lighttpd/lighttpd.conf:ro
+    networks:
+      - tls-perf-net
+
+  backend-sink:
+    build: ./docker/backend-sink
+    container_name: backend-sink
+    environment:
+      - PORT=8080
+    expose:
+      - "8080"
+    networks:
+      - tls-perf-net
