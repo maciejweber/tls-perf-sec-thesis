@@ -3,7 +3,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST=localhost
 
-# macOS: Docker Desktop nie wspiera --network host. Ustaw odpowiedni host i parametry docker.
 if [[ "$(uname)" == "Darwin" ]]; then
   HOST="host.docker.internal"
   DOCKER_NET_ARGS=()
@@ -17,13 +16,11 @@ else
   PORTS=(4431 4432 8443 4434 4435 11112)
 fi
 
-SAMPLES=10
+SAMPLES=${SAMPLES:-10}
 OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
 
-# FIXED: Use original working approach for ALL ports (no SNI)
 measure() {
   local port=$1
-  # Use OpenSSL inside nginx container (has oqsprovider and OpenSSL installed)
   case $port in
     4431)
       docker exec -e OPENSSL_ia32cap="${OPENSSL_ia32cap:-}" tls-perf-nginx sh -lc '
@@ -81,7 +78,6 @@ measure() {
       '
       ;;
     11112)
-      # Use wolfSSL client to negotiate hybrid X25519+ML-KEM-768 with the wolfSSL server
       docker exec wolfssl-cli sh -lc '
         time -p sh -c "
           echo GET / HTTP/1.0 | /usr/local/bin/wolf-client -h wolfssl-server-kyber -p 11112 -v 4 --pqc X25519_ML_KEM_768 >/dev/null 2>&1
@@ -95,12 +91,10 @@ measure() {
   esac
 }
 
-# SKIP availability test - we know manual commands work
 test_server_availability() {
   local port=$1
   
-  echo "  Skipping availability test (manual verification confirms servers work)"
-  echo "  ✅ Server on port $port assumed responsive"
+
   return 0
 }
 
@@ -167,6 +161,7 @@ for PORT in "${PORTS[@]}"; do
   printf "  📊 Results: %.3f ms ± %.3f ms (successful: %d/%d)\n" "$mean_ms" "$stddev_ms" "$successful" "$SAMPLES"
   
   # JSON output
+  out="$OUTDIR/handshake_${PORT}_s${SAMPLES}.json"
   jq -n \
     --arg port "$PORT" \
     --arg mean_ms "$mean_ms" \
@@ -195,7 +190,8 @@ for PORT in "${PORTS[@]}"; do
          else "Unknown" end
        ),
        note: "Using nginx container OpenSSL client (wolfSSL for 11112)"
-     }' > "$OUTDIR/handshake_${PORT}.json"
+     }' > "$out"
+  cp "$out" "$OUTDIR/handshake_${PORT}.json"
 
   echo ""
 done

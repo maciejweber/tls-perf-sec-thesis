@@ -4,6 +4,7 @@ import pathlib
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import re
 
 if len(sys.argv) != 3:
     sys.exit("użycie: compare_aesni.py <run_dir_on> <run_dir_off>")
@@ -114,5 +115,69 @@ for metric, fname in [
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"✓ zapisano heatmapę: {out_path.absolute()}")
+
+
+# === Optional: throughput delta heatmap by payload and concurrency (raw bulk jsons) ===
+def load_bulk(run_dir):
+    rows = []
+    for p in run_dir.glob("bulk_*.json"):
+        try:
+            js = pd.read_json(p, typ="series")
+            port = int(re.search(r"bulk_(\d+)\.json", p.name).group(1))
+            rows.append(
+                {
+                    "port": port,
+                    "throughput_mb_s": float(js.get("throughput_mb_s", float("nan"))),
+                    "payload_size_mb": float(js.get("payload_size_mb", float("nan"))),
+                    "concurrency": int(js.get("concurrency", 1)),
+                }
+            )
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+
+try:
+    b_on = (
+        load_bulk(run_on).dropna(subset=["throughput_mb_s"])
+        if run_on.exists()
+        else None
+    )
+    b_off = (
+        load_bulk(run_off).dropna(subset=["throughput_mb_s"])
+        if run_off.exists()
+        else None
+    )
+    if b_on is not None and b_off is not None and not b_on.empty and not b_off.empty:
+        merged = pd.merge(
+            b_on,
+            b_off,
+            on=["port", "payload_size_mb", "concurrency"],
+            suffixes=("_on", "_off"),
+            how="inner",
+        )
+        if not merged.empty:
+            merged["delta_percent"] = (
+                (merged["throughput_mb_s_off"] - merged["throughput_mb_s_on"])
+                / merged["throughput_mb_s_on"]
+                * 100
+            ).round(1)
+            heat = merged.pivot_table(
+                index=["payload_size_mb"],
+                columns=["concurrency"],
+                values="delta_percent",
+                aggfunc="mean",
+            )
+            fig, ax = plt.subplots(figsize=(8, 5))
+            sns.heatmap(heat, annot=True, fmt="+.1f", cmap="RdBu_r", center=0, ax=ax)
+            ax.set_title("AES-NI Δ% throughput heatmap (payload x concurrency)")
+            ax.set_xlabel("concurrency")
+            ax.set_ylabel("payload MB")
+            out_path = figures_dir / "aesni_delta_throughput_payload_conc.png"
+            plt.savefig(out_path, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+            print(f"✓ zapisano heatmapę: {out_path.absolute()}")
+except Exception:
+    pass
 
 print(f"✅ wykresy zapisane w {figures_dir.absolute()}")

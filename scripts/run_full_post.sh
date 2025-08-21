@@ -3,7 +3,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 HOST=localhost
-# macOS compatibility for Docker networking
 if [[ "$(uname)" == "Darwin" ]]; then
   HOST="host.docker.internal"
   export DOCKER_USE_HOST_NET="0"
@@ -53,8 +52,10 @@ for PORT in "${PORTS[@]}"; do
   done
   avg=$(echo "scale=6; $total/$COUNT" | bc -l)
   printf "→ %s:%s  full+POST avg=%.6fs (size=%dMB)\n" "$HOST" "$PORT" "$avg" "$EARLY_DATA_MB"
+  out="$OUTDIR/fullpost_${PORT}_mb${EARLY_DATA_MB}_n${COUNT}.json"
   jq -n --arg avg "$avg" '{avg_time:($avg|tonumber), method:"full_handshake_post_host_timed"}' \
-       > "$OUTDIR/fullpost_${PORT}.json"
+       > "$out"
+  cp "$out" "$OUTDIR/fullpost_${PORT}.json"
 done
 
 echo "✓ full POST finished" 

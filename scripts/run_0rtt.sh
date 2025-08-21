@@ -3,7 +3,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 HOST=localhost
-# macOS compatibility for Docker networking
 if [[ "$(uname)" == "Darwin" ]]; then
   HOST="host.docker.internal"
   DOCKER_NET=""
@@ -19,18 +18,18 @@ else
   PORTS=(4431 4432 8443)
 fi
 
-COUNT=5
+COUNT=${COUNT:-5}
 OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
 EARLY_DATA_MB=${EARLY_DATA_MB:-4}
-TMP_DIR="$ROOT_DIR/tmp_sess"; mkdir -p "$TMP_DIR"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tls0rtt.XXXXXX")"; trap 'rm -rf "$TMP_DIR"' EXIT
 
 build_early_data_file() {
   local port=$1
   local ed_file="$TMP_DIR/early_${port}.bin"
-  local bytes=$(( EARLY_DATA_MB * 1048576 ))
+  local bytes
+  bytes=$(awk -v m="$EARLY_DATA_MB" 'BEGIN{printf "%d", m*1048576}')
   : > "$ed_file"
   printf 'POST /upload HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n' "$HOST" "$bytes" >> "$ed_file"
-  # Append body
   head -c "$bytes" /dev/zero >> "$ed_file"
   echo "$ed_file"
 }
@@ -116,10 +115,12 @@ for PORT in "${PORTS[@]}"; do
     total=$(echo "$total + ${t:-0}" | bc -l)
   done
   avg=$(echo "scale=6; $total/$COUNT" | bc -l)
-  printf "→ %s:%s  0-RTT avg=%.6fs (early_data=%dMB)\n" "$HOST" "$PORT" "$avg" "$EARLY_DATA_MB"
+  printf "→ %s:%s  0-RTT avg=%.6fs (early_data=%sMB)\n" "$HOST" "$PORT" "$avg" "$EARLY_DATA_MB"
 
+  out="$OUTDIR/simple_${PORT}_ed${EARLY_DATA_MB}_n${COUNT}.json"
   jq -n --arg avg "$avg" '{avg_time:($avg|tonumber), method:"openssl_s_client_0rtt_host_timed"}' \
-       > "$OUTDIR/simple_${PORT}.json"
+       > "$out"
+  cp "$out" "$OUTDIR/simple_${PORT}.json"
 
 done
 

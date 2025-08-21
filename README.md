@@ -1,109 +1,133 @@
 # ReproBench – środowisko replikowalnych benchmarków kryptograficznych
 
-Projekt demonstruje pełny cykl **eksperyment ➜ automatyczna replikacja**  
-z wykorzystaniem kontenerów, CI/CD oraz hermetyzacji zależności.
+Projekt demonstruje pełny cykl eksperyment ➜ automatyczna replikacja z wykorzystaniem kontenerów, CI/CD oraz hermetyzacji zależności.
 
 ## Szybki start
 
 ```bash
 git clone https://github.com/your‑org/reprobench.git
 cd reprobench
-./bootstrap.sh
 ```
 
-## Jak uruchomić eksperymenty i odtworzyć wykresy
+## Certyfikaty (ECDSA i RSA) – bez nadpisywania istniejących
 
-### Wymagania
-
-- Docker / Docker Compose
-- macOS: `powermetrics` (systemowe), `bc`, `jq`
-- Python 3.9+, `venv`
-
-### 1) Certyfikaty i stack
+Skrypt generuje łańcuch demo dla ECDSA P‑256 oraz RSA‑2048 (nazwy plików zawierają algorytm, np. ecdsa-p256.crt, rsa-2048.crt). Ponowne uruchomienie nadpisze pliki dla tego samego algorytmu (świadomie).
 
 ```bash
-# (opcjonalnie) generowanie certów demo
 ./scripts/gen-certs.sh
-
-# start usług: nginx (OpenSSL+OQS) + backend-sink
-docker compose up -d --build nginx-tls backend-sink
+# Pliki trafiają do katalogu certs/ (np. certs/ecdsa-p256.crt, certs/rsa-2048.crt)
 ```
 
-### 2) Pomiary
-
-- Handshake (wszystkie porty):
+## Uruchomienie usług
 
 ```bash
-./scripts/run_handshake.sh
+docker compose up -d --build nginx-tls backend-sink wolf-server wolfssl-server-kyber lighttpd-wolfssl
 ```
 
-- Przepustowość POST (rozmiar żądania w MB):
+- Porty (przykłady):
+  - OpenSSL/nginx: 4431 (X25519+AES‑GCM), 4432 (X25519+ChaCha20), 8443 (X25519+ML‑KEM‑768 hybryda)
+  - wolfSSL/lighttpd: 4434 (AES‑GCM), 4435 (ChaCha20)
+  - wolfSSL example (hybryda): 11112 (X25519+ML‑KEM‑768)
+
+## Jak uruchomić wszystkie skrypty (tylko dane)
+
+Poniżej minimalne komendy do zebrania danych. Pliki wynikowe zapisują się w `results/` oraz w katalogach biegów `results/run_YYYYMMDD_HHMMSS*` (gdy używasz `run_all.sh`).
+
+### 1) Handshake latency
 
 ```bash
-PAYLOAD_SIZE_MB=4 REQUESTS=50 ./scripts/run_bulk.sh
+# Wszystkie porty
+SAMPLES=20 ./scripts/run_handshake.sh
+# Wybrany port
+SAMPLES=20 ./scripts/run_handshake.sh 4431
+# Wyniki: results/handshake_<port>_s<SAMPLES>.json
 ```
 
-- 0‑RTT (resumption + early_data w MB):
+### 2) Bulk throughput (POST)
 
 ```bash
-EARLY_DATA_MB=8 ./scripts/run_0rtt.sh
+# Wszystkie porty
+REQUESTS=50 PAYLOAD_SIZE_MB=1 CONCURRENCY=1 ./scripts/run_bulk.sh
+# Wybrany port i większy payload + równoległość
+REQUESTS=64 PAYLOAD_SIZE_MB=10 CONCURRENCY=8 ./scripts/run_bulk.sh 4432
+# Wyniki: results/bulk_<port>_r<REQUESTS>_p<PAYLOAD_SIZE_MB>_c<CONCURRENCY>.json
+# Surowe czasy per‑request: results/raw/bulk_<port>.txt
 ```
 
-- Bieg zbiorczy (iteracje, NetEm, pomiar zasobów):
+### 3) 0‑RTT (resumption + early data)
 
 ```bash
-ITERATIONS=5 SUITES='x25519_aesgcm chacha20 kyber_hybrid' TESTS='handshake bulk 0rtt' \
-NETEM=0 MEASURE_RESOURCES=0 PAYLOAD_SIZE_MB=4 ./scripts/run_all.sh
+# Wszystkie porty (dla nginx‑TLS: 4431/4432/8443)
+EARLY_DATA_MB=1 COUNT=10 ./scripts/run_0rtt.sh
+# Wybrany port
+EARLY_DATA_MB=1 COUNT=10 ./scripts/run_0rtt.sh 8443
+# Wyniki: results/simple_<port>_ed<EARLY_DATA_MB>_n<COUNT>.json
 ```
 
-- AES‑NI OFF (porównanie):
+### 4) Full handshake + POST (bez resumption)
 
 ```bash
-DISABLE_AESNI=1 ITERATIONS=5 REQUESTS=50 PAYLOAD_SIZE_MB=4 ./scripts/run_all.sh
+# Wybrany port (np. klasyczny AES)
+EARLY_DATA_MB=1 COUNT=5 ./scripts/run_full_post.sh 4431
+# Wyniki: results/fullpost_<port>_mb<EARLY_DATA_MB>_n<COUNT>.json
 ```
 
-Uwaga: wyniki JSON/CSV trafiają do `results/` oraz `results/run_YYYYMMDD_HHMMSS*`.
-
-### 3) Analiza i wykresy
+### 5) TTFB (curl)
 
 ```bash
-python3 -m venv .venv && . .venv/bin/activate && pip install pandas matplotlib seaborn
-MPLBACKEND=Agg python3 analyze.py -r results/latest -s
+TTFB_PAYLOAD_KB=16 ./scripts/run_ttfb.sh 4431
+# Wyniki: results/ttfb_<port>_kb<TTFB_PAYLOAD_KB>.json
 ```
 
-Wykresy zapisują się w `figures/<run>/analyze`.
-
-Porównanie AES‑NI ON vs OFF:
+### 6) Bytes on the wire (TLS 1.3 handshake)
 
 ```bash
-MPLBACKEND=Agg python3 compare_aesni.py results/run_<ON> results/run_<OFF>
+brew install wireshark                # dostarcza tshark
+sudo ./scripts/bytes_on_wire_mac.sh  # klasyczne porty: 4431/4432/4434/4435
+sudo ./scripts/bytes_on_wire_mac.sh 4431 4432  # własne porty
+# Wynik: results/bytes_on_wire_mac.csv (kolumny: port, clienthello_bytes, server_flight_bytes, server_records, total_handshake_bytes, total_records)
 ```
 
-Wyniki: `figures/<ON>/compare_aesni` oraz CSV `aesni_compare.csv` w katalogu biegu `<ON>`.
+Klasyczne bytes‑on‑the‑wire mierzymy na macOS powyższym skryptem. PQ prezentujemy jako handshake_ms/TTFB i Δ% throughput (różnice w bajtach są implikowane przez wyniki czasowe i literaturę). Progiem końca handshaku jest pierwszy Application Data od klienta.
 
-### 4) NetEm (symulacja sieci na macOS)
+### 7) NetEm (symulacja sieci na macOS)
 
 ```bash
-./scripts/netem_mac.sh 50 0.01   # delay=50ms, loss=1%
-./scripts/netem_mac.sh clear
+# Profile P0–P3
+./scripts/netem_profiles.sh P0   # 0 ms, 0%
+./scripts/netem_profiles.sh P1   # 50 ms, jitter nominal (macOS ignoruje jitter)
+./scripts/netem_profiles.sh P2   # 50 ms, 0.5% loss
+./scripts/netem_profiles.sh P3   # 100 ms, 0%
+# Wyczyszczenie
+./scripts/netem_profiles.sh clear
 ```
 
-### Uwaga dla macOS (Docker Desktop)
+### 8) Bieg zbiorczy (opcjonalnie) — lub pełna macierz profili/payload/concurrency
 
-Skrypty są uodpornione na brak `--network host`. Na macOS automatycznie używany jest host `host.docker.internal`, a po stronie `docker run` nie jest dodawana flaga `--network host`. Na Linuxie pozostaje dotychczasowe zachowanie z host networking.
+```bash
+ITERATIONS=5 \
+SUITES='x25519_aesgcm chacha20 kyber_hybrid' \
+TESTS='handshake bulk 0rtt' \
+NETEM=0 MEASURE_RESOURCES=0 PAYLOAD_SIZE_MB=1 \
+./scripts/run_all.sh
+# Wyniki: results/run_YYYYMMDD_HHMMSS*/ (bench.csv, kopie JSONów z results/, config.txt)
 
-## Dodatkowe skrypty (quick wins)
+# Pełna macierz profili P0–P3 × payload × concurrency z AES-NI ON/OFF:
+PAYLOADS="0.1 1 10" CONCURRENCIES="1 8 32" PROFILES="P0 P2 P3" \
+REQUESTS=64 SAMPLES=33 COUNT_0RTT=10 DO_0RTT=1 \
+./scripts/run_matrix.sh
+# Wyniki: results/run_matrix_<TS>/aes_<on|off>/<P0|P1|P2|P3>/{handshake,bulk,0rtt}/...
+```
 
-- Bytes on the wire:
-  ```bash
-  ./scripts/bytes_on_wire.sh            # zapisze results/bytes_on_wire.csv
-  ```
-- TTFB (mały payload, curl):
-  ```bash
-  ./scripts/run_ttfb.sh 4431            # zapisze results/ttfb_4431.json
-  ```
-- Sweep payload × concurrency (bulk):
-  ```bash
-  PAYLOADS="0.1 1 10" CONCURRENCIES="1 8 32" REQUESTS=64 ITERATIONS=1 \
-  ./scripts/run_sweep.sh
-  ```
+## Gdzie trafiają wyniki
+
+- `results/handshake_<port>_s<SAMPLES>.json`
+- `results/bulk_<port>_r<REQUESTS>_p<PAYLOAD_SIZE_MB>_c<CONCURRENCY>.json`
+- `results/simple_<port>_ed<EARLY_DATA_MB>_n<COUNT>.json`
+- `results/fullpost_<port>_mb<EARLY_DATA_MB>_n<COUNT>.json`
+- `results/ttfb_<port>_kb<TTFB_PAYLOAD_KB>.json`
+- `results/bytes_on_wire_mac.csv`
+- Surowe czasy per‑request (bulk): `results/raw/bulk_<port>.txt`
+- Zbiorczy bieg: `results/run_YYYYMMDD_HHMMSS*/` (w tym `bench.csv` i kopie plików JSON)
+
+Uwaga: porty hybrydowe wolfSSL w tym repo to 11112 (example server). Jeśli używasz innego portu hybrydy (np. 9443), dostosuj komendy do swojej konfiguracji.

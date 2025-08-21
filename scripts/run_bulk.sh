@@ -6,7 +6,6 @@ for b in jq bc; do command -v "$b" >/dev/null || {
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST=localhost
 
-# macOS compatibility: Docker Desktop lacks host networking
 if [[ "$(uname)" == "Darwin" ]]; then
   HOST="host.docker.internal"
   DOCKER_NET_ARGS=()
@@ -22,7 +21,6 @@ fi
 
 REQUESTS=${REQUESTS:-100}
 PAYLOAD_SIZE_MB=${PAYLOAD_SIZE_MB:-1}
-# Compute bytes safely for fractional MB
 PAYLOAD_SIZE_BYTES=$(awk -v m="$PAYLOAD_SIZE_MB" 'BEGIN{printf "%d", m*1048576}')
 CONCURRENCY=${CONCURRENCY:-1}
 
@@ -30,7 +28,6 @@ echo "==== Bulk throughput TLS (${PAYLOAD_SIZE_MB}MB, c=${CONCURRENCY}, Consiste
 echo "Using consistent Docker OpenSSL methodology for all ports"
 mkdir -p results/raw
 
-# Send a proper HTTP/1.1 POST with Content-Length so server reads full body
 measure() {
   local host=$1 port=$2
   local cmd_hdr="printf 'POST /upload HTTP/1.1\\r\\nHost: %s\\r\\nContent-Length: %d\\r\\nConnection: close\\r\\n\\r\\n' $HOST ${PAYLOAD_SIZE_BYTES}; head -c ${PAYLOAD_SIZE_BYTES} /dev/zero"
@@ -152,6 +149,7 @@ for PORT in "${PORTS[@]}"; do
   echo "  * Throughput (wall): ${throughput_mbps} MB/s"
 
   # Enhanced JSON output with methodology info
+  out="results/bulk_${PORT}_r${REQUESTS}_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}.json"
   jq -n --arg host "$HOST" --arg port "$PORT" \
         --arg rps "$rps" --arg avg "$avg" \
         --arg successful "$successful" --arg total_requests "$REQUESTS" \
@@ -179,7 +177,8 @@ for PORT in "${PORTS[@]}"; do
             else "Unknown" end
           ),
           note: "HTTP POST via OpenSSL inside nginx container (wolfSSL client for 11112)"
-        }' > "results/bulk_${PORT}.json"
+        }' > "$out"
+  cp "$out" "results/bulk_${PORT}.json"
 done
 
 echo ""; echo "✅ Consistent bulk throughput testing completed"

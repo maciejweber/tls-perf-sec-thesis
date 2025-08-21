@@ -2,7 +2,6 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Defaults
 PAYLOADS=(${PAYLOADS:-0.1 1 10})
 CONCURRENCIES=(${CONCURRENCIES:-1 8 32})
 IMPLEMENTATIONS=(${IMPLEMENTATIONS:-openssl wolfssl})

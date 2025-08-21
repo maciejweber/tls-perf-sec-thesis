@@ -10,9 +10,9 @@ services:
     container_name: tls-perf-nginx
     privileged: true
     ports:
-      - "4431:4431" # AES-GCM
-      - "4432:4432" # ChaCha20-Poly1305
-      - "8443:8443" # X25519+ML-KEM-768 hybrid
+      - "4431:4431"
+      - "4432:4432"
+      - "8443:8443"
     volumes:
       - ./certs:/etc/nginx/certs:ro
       - ./docker/nginx-oqs/conf.d:/etc/nginx/conf.d:ro
@@ -21,25 +21,14 @@ services:
     networks:
       - tls-perf-net
 
-  benchmark-client:
-    build: ./docker/benchmark-client
-    container_name: benchmark-client
-    privileged: true
-    tty: true
-    stdin_open: true
-    volumes:
-      - ./certs:/certs:ro
-    depends_on:
-      - nginx-tls
-      - wolf-server
-    networks:
-      - tls-perf-net
-
   wolf-cli:
     build: ./docker/wolfssl-cli
     container_name: wolfssl-cli
     tty: true
     stdin_open: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     environment:
       - WOLFSSL_HOME=/wolfssl_src
     volumes:
@@ -69,7 +58,11 @@ services:
   wolfssl-server-kyber:
     build: ./docker/wolfssl-server
     container_name: wolfssl-server-kyber
+    privileged: true
     working_dir: /tmp/wolfssl
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     entrypoint:
       [
         "/usr/local/bin/wolf-server",
@@ -106,17 +99,6 @@ services:
     volumes:
       - ./certs:/certs:ro
       - ./docker/lighttpd-wolfssl/lighttpd.conf:/etc/lighttpd/lighttpd.conf:ro
-    networks:
-      - tls-perf-net
-
-  lighttpd-openssl:
-    build: ./docker/lighttpd-openssl
-    container_name: lighttpd-openssl
-    ports:
-      - "4437:4435"
-    volumes:
-      - ./certs:/certs:ro
-      - ./docker/lighttpd-openssl/lighttpd.conf:/etc/lighttpd/lighttpd.conf:ro
     networks:
       - tls-perf-net
 

@@ -35,12 +35,13 @@ measure_port() {
             -w '%{time_total}' "$url" || echo "0")
   fi
 
-  # Use total time as TTFB proxy for robustness in this environment
   ttfb="$total"
 
+  out="$OUTDIR/ttfb_${port}_kb${TTFB_PAYLOAD_KB}.json"
   jq -n --arg port "$port" --arg ttfb "$ttfb" --arg total "$total" \
     '{port:($port|tonumber), ttfb_s:($ttfb|tonumber), avg_time:($total|tonumber), method:"curl_total_as_ttfb"}' \
-    > "$OUTDIR/ttfb_${port}.json"
+    > "$out"
+  cp "$out" "$OUTDIR/ttfb_${port}.json"
 }
 
 echo "==== TTFB measurement (curl, payload=${TTFB_PAYLOAD_KB}KB) ===="
