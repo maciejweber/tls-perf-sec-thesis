@@ -17,7 +17,7 @@ fi
 if [[ $# -eq 1 ]]; then
   PORTS=("$1")
 else
-  PORTS=(4431 4432 8443 4434 4435)
+  PORTS=(4431 4432 8443 4434 4435 11112)
 fi
 
 REQUESTS=${REQUESTS:-100}
@@ -49,6 +49,9 @@ measure() {
       ;;
     4435)
       docker exec -e OPENSSL_ia32cap="${OPENSSL_ia32cap:-}" tls-perf-nginx sh -lc "time -p sh -c \"( ${cmd_hdr} ) | /usr/local/bin/openssl s_client -quiet -provider default -tls1_3 -CAfile /etc/nginx/certs/ca.pem -connect ${host}:4435 >/dev/null 2>&1\" 2>&1 | grep real | awk '{print \$2}'"
+      ;;
+    11112)
+      docker exec wolfssl-cli sh -lc "time -p sh -c \"( ${cmd_hdr} ) | /usr/local/bin/wolf-client -h ${host} -p 11112 -v 4 --pqc X25519_ML_KEM_768 -A /certs/ca.pem -x >/dev/null 2>&1\" 2>&1 | grep real | awk '{print \$2}'"
       ;;
     *)
       echo "Unknown port: $port" >&2
@@ -172,9 +175,10 @@ for PORT in "${PORTS[@]}"; do
             elif ($port|tonumber) == 8443 then "X25519MLKEM768_AES-GCM"
             elif ($port|tonumber) == 4434 then "X25519_AES-GCM_wolfSSL"
             elif ($port|tonumber) == 4435 then "X25519_ChaCha20_wolfSSL"
+            elif ($port|tonumber) == 11112 then "X25519_ML_KEM_768_wolfSSL"
             else "Unknown" end
           ),
-          note: "HTTP POST via OpenSSL inside nginx container"
+          note: "HTTP POST via OpenSSL inside nginx container (wolfSSL client for 11112)"
         }' > "results/bulk_${PORT}.json"
 done
 

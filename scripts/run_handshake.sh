@@ -14,7 +14,7 @@ fi
 if [[ $# -eq 1 ]]; then
   PORTS=("$1")
 else
-  PORTS=(4431 4432 8443)
+  PORTS=(4431 4432 8443 4434 4435 11112)
 fi
 
 SAMPLES=10
@@ -77,6 +77,14 @@ measure() {
             -tls1_3 \
             -CAfile /etc/nginx/certs/ca.pem \
             -connect '"${HOST}"':4435 </dev/null >/dev/null 2>&1
+        " 2>&1 | grep real | awk "{print \$2}"
+      '
+      ;;
+    11112)
+      # Use wolfSSL client to negotiate hybrid X25519+ML-KEM-768 with the wolfSSL server
+      docker exec wolfssl-cli sh -lc '
+        time -p sh -c "
+          echo GET / HTTP/1.0 | /usr/local/bin/wolf-client -h wolfssl-server-kyber -p 11112 -v 4 --pqc X25519_ML_KEM_768 >/dev/null 2>&1
         " 2>&1 | grep real | awk "{print \$2}"
       '
       ;;
@@ -183,9 +191,10 @@ for PORT in "${PORTS[@]}"; do
          elif ($port|tonumber) == 8443 then "X25519MLKEM768_AES-GCM"
          elif ($port|tonumber) == 4434 then "X25519_AES-GCM_wolfSSL"
          elif ($port|tonumber) == 4435 then "X25519_ChaCha20_wolfSSL"
+         elif ($port|tonumber) == 11112 then "X25519_ML_KEM_768_wolfSSL"
          else "Unknown" end
        ),
-       note: "Using nginx container OpenSSL client"
+       note: "Using nginx container OpenSSL client (wolfSSL for 11112)"
      }' > "$OUTDIR/handshake_${PORT}.json"
 
   echo ""

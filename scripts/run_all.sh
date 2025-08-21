@@ -84,6 +84,7 @@ port() {
   elif [[ $impl == openssl && $suite == kyber_hybrid  ]]; then echo 8443
   elif [[ $impl == wolfssl  && $suite == x25519_aesgcm ]]; then echo 4434
   elif [[ $impl == wolfssl  && $suite == chacha20      ]]; then echo 4435
+  elif [[ $impl == wolfssl  && $suite == kyber_hybrid  ]]; then echo 11112
   else echo ""; fi
 }
 

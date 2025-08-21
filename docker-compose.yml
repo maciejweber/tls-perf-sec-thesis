@@ -65,6 +65,37 @@ services:
     networks:
       - tls-perf-net
 
+  # New: wolfSSL example server with ML-KEM-768 hybrid enabled
+  wolfssl-server-kyber:
+    build: ./docker/wolfssl-server
+    container_name: wolfssl-server-kyber
+    working_dir: /tmp/wolfssl
+    entrypoint:
+      [
+        "/usr/local/bin/wolf-server",
+        "-v",
+        "4",
+        "-p",
+        "11112",
+        "-c",
+        "/certs/ecdsa-p256.crt",
+        "-k",
+        "/certs/ecdsa-p256.key",
+        "-b",
+        "-d",
+        "-g",
+        "-i",
+      ]
+    environment:
+      - WOLFSSL_HOME=/tmp/wolfssl
+      - LD_LIBRARY_PATH=/usr/local/lib
+    ports:
+      - "11112:11112"
+    volumes:
+      - ./certs:/certs:ro
+    networks:
+      - tls-perf-net
+
   lighttpd-wolfssl:
     build: ./docker/lighttpd-wolfssl
     container_name: lighttpd-wolfssl

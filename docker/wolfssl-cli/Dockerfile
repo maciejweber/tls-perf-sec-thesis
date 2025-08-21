@@ -1,7 +1,7 @@
 FROM alpine:3.19
 RUN apk add --no-cache build-base git autoconf automake libtool
 
-RUN git clone --depth 1 https://github.com/wolfSSL/wolfssl.git /wolfssl_src && \
+RUN git clone --depth 1 --branch v5.8.2-stable https://github.com/wolfSSL/wolfssl.git /wolfssl_src && \
     cd /wolfssl_src && \
     ./autogen.sh && \
     ./configure \

@@ -5,8 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Defaults
 PAYLOADS=(${PAYLOADS:-0.1 1 10})
 CONCURRENCIES=(${CONCURRENCIES:-1 8 32})
-IMPLEMENTATIONS=(${IMPLEMENTATIONS:-openssl})
-SUITES=(${SUITES:-x25519_aesgcm chacha20})
+IMPLEMENTATIONS=(${IMPLEMENTATIONS:-openssl wolfssl})
+SUITES=(${SUITES:-x25519_aesgcm chacha20 kyber_hybrid})
 ITERATIONS=${ITERATIONS:-1}
 REQUESTS=${REQUESTS:-64}
 

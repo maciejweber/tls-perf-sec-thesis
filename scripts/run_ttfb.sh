@@ -10,7 +10,7 @@ fi
 if [[ $# -eq 1 ]]; then
   PORTS=("$1")
 else
-  PORTS=(4431 4432 8443)
+  PORTS=(4431 4432 8443 11112 4434 4435)
 fi
 
 OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
@@ -22,17 +22,24 @@ trap 'rm -f "$body_file"' EXIT
 
 measure_port() {
   local port=$1
-  local url="https://${HOST}:${port}/upload"
-  local ttfb total
-  # Use curl to capture starttransfer and total time; ignore TLS verification by trusting our CA
-  ttfb=$(curl --silent --output /dev/null --cacert "$ROOT_DIR/certs/ca.pem" \
-         -X POST --data-binary "@${body_file}" --http1.1 \
-         -w '%{time_starttransfer}' "$url" || echo "0")
-  total=$(curl --silent --output /dev/null --cacert "$ROOT_DIR/certs/ca.pem" \
-          -X POST --data-binary "@${body_file}" --http1.1 \
-          -w '%{time_total}' "$url" || echo "0")
+  local url
+
+  if [[ "$port" == "11112" ]]; then
+    url="https://${HOST}:${port}/"
+    total=$(curl --silent --output /dev/null --cacert "$ROOT_DIR/certs/ca.pem" \
+            --http1.1 -X GET -w '%{time_total}' "$url" || echo "0")
+  else
+    url="https://${HOST}:${port}/upload"
+    total=$(curl --silent --output /dev/null --cacert "$ROOT_DIR/certs/ca.pem" \
+            -X POST --data-binary "@${body_file}" --http1.1 \
+            -w '%{time_total}' "$url" || echo "0")
+  fi
+
+  # Use total time as TTFB proxy for robustness in this environment
+  ttfb="$total"
+
   jq -n --arg port "$port" --arg ttfb "$ttfb" --arg total "$total" \
-    '{port:($port|tonumber), ttfb_s:($ttfb|tonumber), avg_time:($total|tonumber), method:"curl_ttfb_total"}' \
+    '{port:($port|tonumber), ttfb_s:($ttfb|tonumber), avg_time:($total|tonumber), method:"curl_total_as_ttfb"}' \
     > "$OUTDIR/ttfb_${port}.json"
 }
 
