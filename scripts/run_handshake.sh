@@ -19,6 +19,55 @@ fi
 SAMPLES=${SAMPLES:-10}
 OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
 
+# Determine NetEm profile from current network conditions
+get_netem_profile() {
+  # Check if NetEm is active and determine profile
+  if command -v dnctl >/dev/null 2>&1; then
+    local pipe_info=$(dnctl list 2>/dev/null | grep "pipe 1" || echo "")
+    if [[ -n "$pipe_info" ]]; then
+      if echo "$pipe_info" | grep -q "delay 50ms.*plr 0.005"; then
+        echo "delay_50ms_loss_0.5"  # P2
+      elif echo "$pipe_info" | grep -q "delay 50ms.*plr 0"; then
+        echo "delay_50ms"           # P1
+      elif echo "$pipe_info" | grep -q "delay 100ms.*plr 0"; then
+        echo "delay_100ms"          # P3
+      else
+        echo "custom"
+      fi
+    else
+      echo "baseline"               # P0 (no NetEm)
+    fi
+  else
+    echo "baseline"
+  fi
+}
+
+# Create organized folder structure
+NETEM_PROFILE=$(get_netem_profile)
+AES_TAG=$([[ "${OPENSSL_ia32cap:-}" == "~0x200000200000000" ]] && echo "aes_off" || echo "aes_on")
+TEST_DIR="$OUTDIR/handshake/${NETEM_PROFILE}_${AES_TAG}_s${SAMPLES}"
+
+# Clean and create test directory
+rm -rf "$TEST_DIR" 2>/dev/null || true
+mkdir -p "$TEST_DIR"
+
+# Create series directory for backward compatibility
+join_ports() { local IFS=-; echo "$*"; }
+PORTS_KEY=$(join_ports "${PORTS[@]}")
+RUN_TAG_SUFFIX=${RUN_TAG:+_$(echo "$RUN_TAG" | tr ' ' '_')}
+SERIES_DIR="$OUTDIR/series/handshake/ports_${PORTS_KEY}_s${SAMPLES}_${AES_TAG}${RUN_TAG_SUFFIX}"
+rm -rf "$SERIES_DIR" 2>/dev/null || true
+mkdir -p "$SERIES_DIR"
+
+printf "script=run_handshake.sh\nports=%s\nsamples=%s\naes=%s\nnetem_profile=%s\nrun_tag=%s\nstarted_at=%s\n" \
+  "$PORTS_KEY" "$SAMPLES" "$AES_TAG" "$NETEM_PROFILE" "${RUN_TAG:-}" "$(date -Iseconds)" >"$SERIES_DIR/series_info.txt"
+
+echo "==== TLS Handshake Performance ($SAMPLES samples, Organized Folder Structure) ===="
+echo "📁 Test directory: $TEST_DIR"
+echo "🌐 NetEm profile: $NETEM_PROFILE"
+echo "🔐 AES status: $AES_TAG"
+echo ""
+
 measure() {
   local port=$1
   case $port in
@@ -128,7 +177,7 @@ for PORT in "${PORTS[@]}"; do
         ((failed++))
       fi
     else
-      echo "    Sample $i: Failed (command error)"  
+      echo "    Sample $i: Failed (command error)  "
       ((failed++))
     fi
   done
@@ -161,7 +210,7 @@ for PORT in "${PORTS[@]}"; do
   printf "  📊 Results: %.3f ms ± %.3f ms (successful: %d/%d)\n" "$mean_ms" "$stddev_ms" "$successful" "$SAMPLES"
   
   # JSON output
-  out="$OUTDIR/handshake_${PORT}_s${SAMPLES}.json"
+  out="$TEST_DIR/handshake_${PORT}_s${SAMPLES}.json"
   jq -n \
     --arg port "$PORT" \
     --arg mean_ms "$mean_ms" \
@@ -191,11 +240,12 @@ for PORT in "${PORTS[@]}"; do
        ),
        note: "Using nginx container OpenSSL client (wolfSSL for 11112)"
      }' > "$out"
-  cp "$out" "$OUTDIR/handshake_${PORT}.json"
+  cp "$out" "$TEST_DIR/handshake_${PORT}.json"
+  cp "$out" "$SERIES_DIR/handshake_${PORT}_s${SAMPLES}.json"
 
   echo ""
 done
 
 echo "✅ Handshake performance testing completed"
 echo "📊 All measurements used OpenSSL from nginx container"
-echo "📁 Results saved in: $OUTDIR/handshake_*.json"
+echo "📁 Results saved in: $TEST_DIR/handshake_*.json"

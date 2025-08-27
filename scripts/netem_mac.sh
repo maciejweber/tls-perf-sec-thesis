@@ -69,11 +69,11 @@ apply_netem() {
         cat <<EOF | sudo tee -a "$PF_CONF" >/dev/null
 
 # TLS thesis network emulation $TAG
-dummynet out proto tcp to any port {443, 4431, 4432, 8443} pipe $PIPE $TAG
+dummynet out proto tcp to any port {443, 4431, 4432, 4434, 4435, 8443, 11112} pipe $PIPE $TAG
 EOF
     fi
     
-    sudo pfctl -f "$PF_CONF" -e
+    sudo pfctl -f "$PF_CONF" -e || true
     
     echo "✅ NetEm aktywny: delay=${delay_ms}ms, loss=${loss_pct}% (jitter=${jitter_ms}ms ignored on macOS)"
     

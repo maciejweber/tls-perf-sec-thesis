@@ -136,20 +136,65 @@ run_once() {
   fi
 
   case $test in
-    handshake) "$ROOT_DIR/scripts/run_handshake.sh" "$prt" >/dev/null ;;
-    bulk)      "$ROOT_DIR/scripts/run_bulk.sh"       "$prt" >/dev/null ;;
-    0rtt)      "$ROOT_DIR/scripts/run_0rtt.sh"       "$prt" >/dev/null ;;
-    ttfb)      "$ROOT_DIR/scripts/run_ttfb.sh"       "$prt" >/dev/null || true ;;
+    handshake) 
+      "$ROOT_DIR/scripts/run_handshake.sh" "$prt" >/dev/null
+      # Try to find results in new organized folders first
+      json=""
+      if [[ -f "$ROOT_DIR/results/handshake/baseline_aes_on_s33/handshake_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/handshake/baseline_aes_on_s33/handshake_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/handshake/delay_50ms_aes_on_s33/handshake_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/handshake/delay_50ms_aes_on_s33/handshake_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/handshake/delay_50ms_loss_0.5_aes_on_s33/handshake_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/handshake/delay_50ms_loss_0.5_aes_on_s33/handshake_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/handshake/delay_100ms_aes_on_s33/handshake_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/handshake/delay_100ms_aes_on_s33/handshake_${prt}.json"
+      fi
+      ;;
+    bulk)      
+      "$ROOT_DIR/scripts/run_bulk.sh" "$prt" >/dev/null
+      # Try to find results in new organized folders first
+      json=""
+      if [[ -f "$ROOT_DIR/results/bulk/baseline_aes_on_r64_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}/bulk_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/bulk/baseline_aes_on_r64_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}/bulk_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/bulk/delay_50ms_aes_on_r64_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}/bulk_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/bulk/delay_50ms_aes_on_r64_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}/bulk_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/bulk/delay_50ms_loss_0.5_aes_on_r64_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}/bulk_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/bulk/delay_50ms_loss_0.5_aes_on_r64_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}/bulk_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/bulk/delay_100ms_aes_on_r64_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}/bulk_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/bulk/delay_100ms_aes_on_r64_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}/bulk_${prt}.json"
+      fi
+      ;;
+    0rtt)      
+      "$ROOT_DIR/scripts/run_0rtt.sh" "$prt" >/dev/null
+      # Try to find results in new organized folders first
+      json=""
+      if [[ -f "$ROOT_DIR/results/0rtt/baseline_aes_on_ed4_n5/simple_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/0rtt/baseline_aes_on_ed4_n5/simple_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/0rtt/delay_50ms_aes_on_ed4_n5/simple_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/0rtt/delay_50ms_aes_on_ed4_n5/simple_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/0rtt/delay_50ms_loss_0.5_aes_on_ed4_n5/simple_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/0rtt/delay_50ms_loss_0.5_aes_on_ed4_n5/simple_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/0rtt/delay_100ms_aes_on_ed4_n5/simple_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/0rtt/delay_100ms_aes_on_ed4_n5/simple_${prt}.json"
+      fi
+      ;;
+    ttfb)      
+      "$ROOT_DIR/scripts/run_ttfb.sh" "$prt" >/dev/null || true
+      # Try to find results in new organized folders first
+      json=""
+      if [[ -f "$ROOT_DIR/results/ttfb/baseline_kb16/ttfb_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/ttfb/baseline_kb16/ttfb_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/ttfb/delay_50ms_kb16/ttfb_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/ttfb/delay_50ms_kb16/ttfb_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/ttfb/delay_50ms_loss_0.5_kb16/ttfb_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/ttfb/delay_50ms_loss_0.5_kb16/ttfb_${prt}.json"
+      elif [[ -f "$ROOT_DIR/results/ttfb/delay_100ms_kb16/ttfb_${prt}.json" ]]; then
+        json="$ROOT_DIR/results/ttfb/delay_100ms_kb16/ttfb_${prt}.json"
+      fi
+      ;;
   esac
 
-  case $test in
-    handshake) json="$ROOT_DIR/results/handshake_${prt}.json" ;;
-    bulk)      json="$ROOT_DIR/results/bulk_${prt}.json"      ;;
-    0rtt)      json="$ROOT_DIR/results/simple_${prt}.json"    ;;
-    ttfb)      json="$ROOT_DIR/results/ttfb_${prt}.json"      ;;
-  esac
-
-  if [[ ! -f "$json" ]]; then
+  if [[ -z "$json" || ! -f "$json" ]]; then
     echo "⚠️  brak $json"
     return
   fi

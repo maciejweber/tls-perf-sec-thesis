@@ -23,6 +23,45 @@ OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
 EARLY_DATA_MB=${EARLY_DATA_MB:-4}
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tls0rtt.XXXXXX")"; trap 'rm -rf "$TMP_DIR"' EXIT
 
+# Determine NetEm profile from current network conditions
+get_netem_profile() {
+  # Check if NetEm is active and determine profile
+  if command -v dnctl >/dev/null 2>&1; then
+    local pipe_info=$(dnctl list 2>/dev/null | grep "pipe 1" || echo "")
+    if [[ -n "$pipe_info" ]]; then
+      if echo "$pipe_info" | grep -q "delay 50ms.*plr 0.005"; then
+        echo "delay_50ms_loss_0.5"  # P2
+      elif echo "$pipe_info" | grep -q "delay 50ms.*plr 0"; then
+        echo "delay_50ms"           # P1
+      elif echo "$pipe_info" | grep -q "delay 100ms.*plr 0"; then
+        echo "delay_100ms"          # P3
+      else
+        echo "custom"
+      fi
+    else
+      echo "baseline"               # P0 (no NetEm)
+    fi
+  else
+    echo "baseline"
+  fi
+}
+
+# Create organized folder structure
+NETEM_PROFILE=$(get_netem_profile)
+AES_TAG=$([[ "${OPENSSL_ia32cap:-}" == "~0x200000200000000" ]] && echo "aes_off" || echo "aes_on")
+TEST_DIR="$OUTDIR/0rtt/${NETEM_PROFILE}_${AES_TAG}_ed${EARLY_DATA_MB}_n${COUNT}"
+
+# Clean and create test directory
+rm -rf "$TEST_DIR" 2>/dev/null || true
+mkdir -p "$TEST_DIR"
+
+echo "==== 0-RTT Performance Test (${EARLY_DATA_MB}MB early data, ${COUNT} requests) ===="
+echo "📁 Test directory: $TEST_DIR"
+echo "🌐 NetEm profile: $NETEM_PROFILE"
+echo "🔐 AES status: $AES_TAG"
+echo "📦 Early data: ${EARLY_DATA_MB}MB, Count: ${COUNT}"
+echo ""
+
 build_early_data_file() {
   local port=$1
   local ed_file="$TMP_DIR/early_${port}.bin"
@@ -117,10 +156,10 @@ for PORT in "${PORTS[@]}"; do
   avg=$(echo "scale=6; $total/$COUNT" | bc -l)
   printf "→ %s:%s  0-RTT avg=%.6fs (early_data=%sMB)\n" "$HOST" "$PORT" "$avg" "$EARLY_DATA_MB"
 
-  out="$OUTDIR/simple_${PORT}_ed${EARLY_DATA_MB}_n${COUNT}.json"
+  out="$TEST_DIR/simple_${PORT}_ed${EARLY_DATA_MB}_n${COUNT}.json"
   jq -n --arg avg "$avg" '{avg_time:($avg|tonumber), method:"openssl_s_client_0rtt_host_timed"}' \
        > "$out"
-  cp "$out" "$OUTDIR/simple_${PORT}.json"
+  cp "$out" "$TEST_DIR/simple_${PORT}.json"
 
 done
 

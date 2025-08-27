@@ -19,12 +19,62 @@ else
   PORTS=(4431 4432 8443 4434 4435 11112)
 fi
 
-REQUESTS=${REQUESTS:-100}
+REQUESTS=${REQUESTS:-64}
 PAYLOAD_SIZE_MB=${PAYLOAD_SIZE_MB:-1}
 PAYLOAD_SIZE_BYTES=$(awk -v m="$PAYLOAD_SIZE_MB" 'BEGIN{printf "%d", m*1048576}')
-CONCURRENCY=${CONCURRENCY:-1}
+CONCURRENCY=${CONCURRENCY:-8}
+OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
 
-echo "==== Bulk throughput TLS (${PAYLOAD_SIZE_MB}MB, c=${CONCURRENCY}, Consistent Docker) ===="
+# Determine NetEm profile from current network conditions
+get_netem_profile() {
+  # Check if NetEm is active and determine profile
+  if command -v dnctl >/dev/null 2>&1; then
+    local pipe_info=$(dnctl list 2>/dev/null | grep "pipe 1" || echo "")
+    if [[ -n "$pipe_info" ]]; then
+      if echo "$pipe_info" | grep -q "delay 50ms.*plr 0.005"; then
+        echo "delay_50ms_loss_0.5"  # P2
+      elif echo "$pipe_info" | grep -q "delay 50ms.*plr 0"; then
+        echo "delay_50ms"           # P1
+      elif echo "$pipe_info" | grep -q "delay 100ms.*plr 0"; then
+        echo "delay_100ms"          # P3
+      else
+        echo "custom"
+      fi
+    else
+      echo "baseline"               # P0 (no NetEm)
+    fi
+  else
+    echo "baseline"
+  fi
+}
+
+# Create organized folder structure
+NETEM_PROFILE=$(get_netem_profile)
+AES_TAG=$([[ "${OPENSSL_ia32cap:-}" == "~0x200000200000000" ]] && echo "aes_off" || echo "aes_on")
+TEST_DIR="$OUTDIR/bulk/${NETEM_PROFILE}_${AES_TAG}_r${REQUESTS}_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}"
+
+# Clean and create test directory
+rm -rf "$TEST_DIR" 2>/dev/null || true
+mkdir -p "$TEST_DIR"
+
+# Create series directory for backward compatibility
+join_ports() { local IFS=-; echo "$*"; }
+PORTS_KEY=$(join_ports "${PORTS[@]}")
+RUN_TAG_SUFFIX=${RUN_TAG:+_$(echo "$RUN_TAG" | tr ' ' '_')}
+SERIES_DIR="$OUTDIR/series/bulk/ports_${PORTS_KEY}_r${REQUESTS}_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}_${AES_TAG}${RUN_TAG_SUFFIX}"
+rm -rf "$SERIES_DIR" 2>/dev/null || true
+mkdir -p "$SERIES_DIR" "$ROOT_DIR/results/raw"
+
+printf "script=run_bulk.sh\nports=%s\nrequests=%s\npayload_mb=%s\nconcurrency=%s\naes=%s\nnetem_profile=%s\nrun_tag=%s\nstarted_at=%s\n" \
+  "$PORTS_KEY" "$REQUESTS" "$PAYLOAD_SIZE_MB" "$CONCURRENCY" "$AES_TAG" "$NETEM_PROFILE" "${RUN_TAG:-}" "$(date -Iseconds)" >"$SERIES_DIR/series_info.txt"
+
+echo "==== Bulk throughput TLS (${PAYLOAD_SIZE_MB}MB, c=${CONCURRENCY}, Organized Folder Structure) ===="
+echo "📁 Test directory: $TEST_DIR"
+echo "🌐 NetEm profile: $NETEM_PROFILE"
+echo "🔐 AES status: $AES_TAG"
+echo "📦 Payload: ${PAYLOAD_SIZE_MB}MB, Concurrency: ${CONCURRENCY}, Requests: ${REQUESTS}"
+echo ""
+
 echo "Using consistent Docker OpenSSL methodology for all ports"
 mkdir -p results/raw
 
@@ -149,7 +199,7 @@ for PORT in "${PORTS[@]}"; do
   echo "  * Throughput (wall): ${throughput_mbps} MB/s"
 
   # Enhanced JSON output with methodology info
-  out="results/bulk_${PORT}_r${REQUESTS}_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}.json"
+  out="$TEST_DIR/bulk_${PORT}_r${REQUESTS}_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}.json"
   jq -n --arg host "$HOST" --arg port "$PORT" \
         --arg rps "$rps" --arg avg "$avg" \
         --arg successful "$successful" --arg total_requests "$REQUESTS" \
@@ -178,7 +228,8 @@ for PORT in "${PORTS[@]}"; do
           ),
           note: "HTTP POST via OpenSSL inside nginx container (wolfSSL client for 11112)"
         }' > "$out"
-  cp "$out" "results/bulk_${PORT}.json"
+  cp "$out" "$TEST_DIR/bulk_${PORT}.json"
+  cp "$out" "$SERIES_DIR/bulk_${PORT}_r${REQUESTS}_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}.json"
 done
 
 echo ""; echo "✅ Consistent bulk throughput testing completed"

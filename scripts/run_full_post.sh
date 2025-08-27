@@ -20,6 +20,45 @@ COUNT=${COUNT:-3}
 EARLY_DATA_MB=${EARLY_DATA_MB:-8}
 OUTDIR="$ROOT_DIR/results"; mkdir -p "$OUTDIR"
 
+# Determine NetEm profile from current network conditions
+get_netem_profile() {
+  # Check if NetEm is active and determine profile
+  if command -v dnctl >/dev/null 2>&1; then
+    local pipe_info=$(dnctl list 2>/dev/null | grep "pipe 1" || echo "")
+    if [[ -n "$pipe_info" ]]; then
+      if echo "$pipe_info" | grep -q "delay 50ms.*plr 0.005"; then
+        echo "delay_50ms_loss_0.5"  # P2
+      elif echo "$pipe_info" | grep -q "delay 50ms.*plr 0"; then
+        echo "delay_50ms"           # P1
+      elif echo "$pipe_info" | grep -q "delay 100ms.*plr 0"; then
+        echo "delay_100ms"          # P3
+      else
+        echo "custom"
+      fi
+    else
+      echo "baseline"               # P0 (no NetEm)
+    fi
+  else
+    echo "baseline"
+  fi
+}
+
+# Create organized folder structure
+NETEM_PROFILE=$(get_netem_profile)
+AES_TAG=$([[ "${OPENSSL_ia32cap:-}" == "~0x200000200000000" ]] && echo "aes_off" || echo "aes_on")
+TEST_DIR="$OUTDIR/full_post/${NETEM_PROFILE}_${AES_TAG}_mb${EARLY_DATA_MB}_n${COUNT}"
+
+# Clean and create test directory
+rm -rf "$TEST_DIR" 2>/dev/null || true
+mkdir -p "$TEST_DIR"
+
+echo "==== Full handshake + POST (no resumption, Organized Folder Structure) ===="
+echo "📁 Test directory: $TEST_DIR"
+echo "🌐 NetEm profile: $NETEM_PROFILE"
+echo "🔐 AES status: $AES_TAG"
+echo "📦 POST size: ${EARLY_DATA_MB}MB, Count: ${COUNT}"
+echo ""
+
 time_full_post() {
   local port=$1
   python3 - "$port" "$HOST" "$EARLY_DATA_MB" <<'PY'
@@ -28,6 +67,7 @@ port = int(sys.argv[1]); host=sys.argv[2]; mb=int(sys.argv[3])
 bytes_ = mb*1048576
 use_host_net = os.environ.get("DOCKER_USE_HOST_NET","1") == "1"
 base=["docker","run","--rm"] + (["--network","host"] if use_host_net else []) + [
+      "-e","OPENSSL_ia32cap="+os.environ.get("OPENSSL_ia32cap",""),
       "openquantumsafe/oqs-ossl3","sh","-lc"]
 if port==8443:
   prov="-provider default -provider oqsprovider -groups X25519MLKEM768"
@@ -52,10 +92,10 @@ for PORT in "${PORTS[@]}"; do
   done
   avg=$(echo "scale=6; $total/$COUNT" | bc -l)
   printf "→ %s:%s  full+POST avg=%.6fs (size=%dMB)\n" "$HOST" "$PORT" "$avg" "$EARLY_DATA_MB"
-  out="$OUTDIR/fullpost_${PORT}_mb${EARLY_DATA_MB}_n${COUNT}.json"
+  out="$TEST_DIR/fullpost_${PORT}_mb${EARLY_DATA_MB}_n${COUNT}.json"
   jq -n --arg avg "$avg" '{avg_time:($avg|tonumber), method:"full_handshake_post_host_timed"}' \
        > "$out"
-  cp "$out" "$OUTDIR/fullpost_${PORT}.json"
+  cp "$out" "$TEST_DIR/fullpost_${PORT}.json"
 done
 
 echo "✓ full POST finished" 
