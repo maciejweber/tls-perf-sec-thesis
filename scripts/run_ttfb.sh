@@ -4,7 +4,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 HOST=localhost
 if [[ "$(uname)" == "Darwin" ]]; then
-  HOST="host.docker.internal"
+  HOST="localhost"
 fi
 
 if [[ $# -eq 1 ]]; then
@@ -44,7 +44,9 @@ NETEM_PROFILE=$(get_netem_profile)
 TEST_DIR="$OUTDIR/ttfb/${NETEM_PROFILE}_kb${TTFB_PAYLOAD_KB}"
 
 # Clean and create test directory
-rm -rf "$TEST_DIR" 2>/dev/null || true
+if [[ "${CLEAN:-1}" == "1" ]]; then
+  rm -rf "$TEST_DIR" 2>/dev/null || true
+fi
 mkdir -p "$TEST_DIR"
 
 echo "==== TTFB measurement (curl, payload=${TTFB_PAYLOAD_KB}KB, Organized Folder Structure) ===="

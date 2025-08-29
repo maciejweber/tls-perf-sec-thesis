@@ -42,7 +42,9 @@ TEST_DIR="$OUTDIR/bytes_on_wire/${NETEM_PROFILE}"
 CSV="${TEST_DIR}/bytes_on_wire_mac.csv"
 
 # Clean and create test directory
-rm -rf "$TEST_DIR" 2>/dev/null || true
+if [[ "${CLEAN:-1}" == "1" ]]; then
+  rm -rf "$TEST_DIR" 2>/dev/null || true
+fi
 mkdir -p "$TEST_DIR"
 
 echo "==== Bytes-on-the-wire measurement (macOS, Organized Folder Structure) ===="
@@ -54,41 +56,63 @@ echo ""
 require() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1" >&2; exit 1; }; }
 require tshark
 require curl
-require tcpdump
+# tcpdump będzie użyty wewnątrz kontenerów (Alpine), więc nie wymagamy go na hoście
 
 PORTS=("$@")
 if [[ ${#PORTS[@]} -eq 0 ]]; then
   PORTS=(4431 4432 4434 4435)
 fi
 
-echo "port,clienthello_bytes,server_flight_bytes,server_records,total_handshake_bytes,total_records" > "$CSV"
+# Zainicjuj CSV tylko jeśli pusty/nie istnieje
+if [[ ! -s "$CSV" ]]; then
+  echo "port,clienthello_bytes,server_flight_bytes,server_records,total_handshake_bytes,total_records" > "$CSV"
+fi
 
 capture_one() {
   local PORT=$1
-  local PCAP="/tmp/byw_${PORT}.pcap"
+  local PCAP
 
-  if [[ "$DRIVE" == "1" ]]; then
-    echo "→ Port ${PORT}: zaczynam capture na lo0 (${DURATION}s) i odpalam ${HITS} żądań…"
+  # Mapowanie port -> kontener (Docker capture inside container)
+  local CONT=""
+  case "$PORT" in
+    4431|4432|8443) CONT="tls-perf-nginx" ;;
+    4434|4435)      CONT="lighttpd-wolfssl" ;;
+    *)              CONT="" ;;
+  esac
+
+  if [[ -n "$CONT" ]]; then
+    # Capture w kontenerze na interfejsie any, zapis do /tmp, potem kopiujemy na hosta
+    echo "→ Port ${PORT}: docker-capture w ${CONT} (${DURATION}s)${DRIVE:+ z generowaniem ruchu}…"
+    docker exec "$CONT" sh -lc "apk add --no-cache tcpdump >/dev/null 2>&1 || true; rm -f /tmp/byw_${PORT}.pcap; tcpdump -i any -n -s0 -w /tmp/byw_${PORT}.pcap 'tcp port ${PORT}' >/dev/null 2>&1 & echo \$! > /tmp/tcpdump_${PORT}.pid" || true
+
+    # Generuj ruch (na hoście)
+    if [[ "$DRIVE" == "1" ]]; then
+      for i in $(seq 1 "$HITS"); do
+        curl -k --http1.1 --max-time 3 -s -o /dev/null "https://localhost:${PORT}/" || true
+      done
+    fi
+
+    # Poczekaj na zakończenie okna i ubij capture w kontenerze
+    sleep "$DURATION"
+    docker exec "$CONT" sh -lc "kill \$(cat /tmp/tcpdump_${PORT}.pid 2>/dev/null) >/dev/null 2>&1 || true; sleep 1" || true
+
+    # Pobierz PCAP na hosta i ustaw ścieżkę do analizy
+    PCAP="/tmp/byw_${PORT}.pcap"
+    docker cp "${CONT}:/tmp/byw_${PORT}.pcap" "$PCAP" >/dev/null 2>&1 || true
   else
-    echo "→ Port ${PORT}: zaczynam PASYWNY capture na lo0 (${DURATION}s) — wyzwól handshake po swojej stronie…"
+    # Fallback (host capture na lo0) – zwykle nie działa dla port-mapping Dockera
+    PCAP="/tmp/byw_${PORT}.pcap"
+    sudo tcpdump -i lo0 -n -s0 -w "$PCAP" "tcp port ${PORT}" >/dev/null 2>&1 &
+    local CAP_PID=$!
+    ( sleep "$DURATION"; kill "$CAP_PID" >/dev/null 2>&1 || true ) &
+    local KILLER_PID=$!
+    if [[ "$DRIVE" == "1" ]]; then
+      for i in $(seq 1 "$HITS"); do
+        curl -k --http1.1 --max-time 3 -s -o /dev/null "https://localhost:${PORT}/" || true
+      done
+    fi
+    wait "$KILLER_PID" 2>/dev/null || true
   fi
-
-  # start capture tcpdump na lo0 w tle (bez limitu czasu wbudowanego)
-  sudo tcpdump -i lo0 -n -s0 -w "$PCAP" "tcp port ${PORT}" >/dev/null 2>&1 &
-  local CAP_PID=$!
-  # zaplanuj zakończenie po DURATION
-  ( sleep "$DURATION"; kill "$CAP_PID" >/dev/null 2>&1 || true ) &
-  local KILLER_PID=$!
-
-  # opcjonalnie generuj ruch curl
-  if [[ "$DRIVE" == "1" ]]; then
-    for i in $(seq 1 "$HITS"); do
-      curl -k --http1.1 --max-time 3 -s -o /dev/null "https://localhost:${PORT}/" || true
-    done
-  fi
-
-  # poczekaj aż killer zakończy capture
-  wait "$KILLER_PID" 2>/dev/null || true
 
   if [[ ! -s "$PCAP" ]]; then
     echo "⚠️  Port ${PORT}: brak PCAP lub pusty plik — pomijam."

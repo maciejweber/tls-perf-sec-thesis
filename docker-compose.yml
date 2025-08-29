@@ -18,6 +18,10 @@ services:
       - ./docker/nginx-oqs/conf.d:/etc/nginx/conf.d:ro
     environment:
       - TZ=Europe/Warsaw
+      - OPENSSL_ia32cap=~0x200000200000000
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     networks:
       - tls-perf-net
 
@@ -63,21 +67,13 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    entrypoint:
-      [
-        "/usr/local/bin/wolf-server",
-        "-v",
-        "4",
-        "-p",
-        "11112",
+    entrypoint: [
+        "/bin/sh",
         "-c",
-        "/certs/ecdsa-p256.crt",
-        "-k",
-        "/certs/ecdsa-p256.key",
-        "-b",
-        "-d",
-        "-g",
-        "-i",
+        "set -e; \
+        [ -f /certs/dh2048.pem ] || cp /tmp/wolfssl/certs/dh2048.pem /certs/; \
+        ln -sf /certs /tmp/wolfssl/certs; \
+        exec /usr/local/bin/wolf-server -v 4 -p 11112 -c /certs/ecdsa-p256.crt -k /certs/ecdsa-p256.key -b -d -i",
       ]
     environment:
       - WOLFSSL_HOME=/tmp/wolfssl
@@ -85,9 +81,10 @@ services:
     ports:
       - "11112:11112"
     volumes:
-      - ./certs:/certs:ro
+      - ./certs:/certs:rw
     networks:
       - tls-perf-net
+    restart: unless-stopped
 
   lighttpd-wolfssl:
     build: ./docker/lighttpd-wolfssl

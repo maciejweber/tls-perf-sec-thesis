@@ -4,7 +4,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 HOST=localhost
 if [[ "$(uname)" == "Darwin" ]]; then
-  HOST="host.docker.internal"
+  HOST="localhost"
   DOCKER_NET=""
   export DOCKER_USE_HOST_NET="0"
 else

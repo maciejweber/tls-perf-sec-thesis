@@ -7,7 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST=localhost
 
 if [[ "$(uname)" == "Darwin" ]]; then
-  HOST="host.docker.internal"
+  HOST="localhost"
   DOCKER_NET_ARGS=()
 else
   DOCKER_NET_ARGS=(--network host)
@@ -50,11 +50,13 @@ get_netem_profile() {
 
 # Create organized folder structure
 NETEM_PROFILE=$(get_netem_profile)
-AES_TAG=$([[ "${OPENSSL_ia32cap:-}" == "~0x200000200000000" ]] && echo "aes_off" || echo "aes_on")
+AES_TAG=${FORCE_AES_TAG:-$([[ "${OPENSSL_ia32cap:-}" == "~0x200000200000000" ]] && echo "aes_off" || echo "aes_on")}
 TEST_DIR="$OUTDIR/bulk/${NETEM_PROFILE}_${AES_TAG}_r${REQUESTS}_p${PAYLOAD_SIZE_MB}_c${CONCURRENCY}"
 
 # Clean and create test directory
-rm -rf "$TEST_DIR" 2>/dev/null || true
+if [[ "${CLEAN:-1}" == "1" ]]; then
+  rm -rf "$TEST_DIR" 2>/dev/null || true
+fi
 mkdir -p "$TEST_DIR"
 
 # Create series directory for backward compatibility
@@ -98,7 +100,7 @@ measure() {
       docker exec -e OPENSSL_ia32cap="${OPENSSL_ia32cap:-}" tls-perf-nginx sh -lc "time -p sh -c \"( ${cmd_hdr} ) | /usr/local/bin/openssl s_client -quiet -provider default -tls1_3 -CAfile /etc/nginx/certs/ca.pem -connect ${host}:4435 >/dev/null 2>&1\" 2>&1 | grep real | awk '{print \$2}'"
       ;;
     11112)
-      docker exec wolfssl-cli sh -lc "time -p sh -c \"( ${cmd_hdr} ) | /usr/local/bin/wolf-client -h ${host} -p 11112 -v 4 --pqc X25519_ML_KEM_768 -A /certs/ca.pem -x >/dev/null 2>&1\" 2>&1 | grep real | awk '{print \$2}'"
+      docker exec wolfssl-cli sh -lc "srv_ip=\$(getent hosts wolfssl-server-kyber 2>/dev/null | awk '{print \$1}'); srv_ip=\${srv_ip:-172.21.0.2}; time -p sh -c \"( ${cmd_hdr} ) | /usr/local/bin/wolf-client -h \${srv_ip} -p 11112 -v 4 --pqc X25519_ML_KEM_768 -A /certs/ca.pem -x >/dev/null 2>&1\" 2>&1 | grep real | awk '{print \$2}'"
       ;;
     *)
       echo "Unknown port: $port" >&2

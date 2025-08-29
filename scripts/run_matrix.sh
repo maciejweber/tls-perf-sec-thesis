@@ -55,14 +55,15 @@ for aes in on off; do
     for p in "${PORTS[@]}"; do
       # Try to find results in new organized folders first
       src_file=""
-      if [[ -f "$ROOT_DIR/results/handshake/baseline_aes_on_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json" ]]; then
-        src_file="$ROOT_DIR/results/handshake/baseline_aes_on_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json"
-      elif [[ -f "$ROOT_DIR/results/handshake/delay_50ms_aes_on_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json" ]]; then
-        src_file="$ROOT_DIR/results/handshake/delay_50ms_aes_on_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json"
-      elif [[ -f "$ROOT_DIR/results/handshake/delay_50ms_loss_0.5_aes_on_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json" ]]; then
-        src_file="$ROOT_DIR/results/handshake/delay_50ms_loss_0.5_aes_on_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json"
-      elif [[ -f "$ROOT_DIR/results/handshake/delay_100ms_aes_on_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json" ]]; then
-        src_file="$ROOT_DIR/results/handshake/delay_100ms_aes_on_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json"
+      aes_tag="aes_${aes}"
+      if [[ -f "$ROOT_DIR/results/handshake/baseline_${aes_tag}_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json" ]]; then
+        src_file="$ROOT_DIR/results/handshake/baseline_${aes_tag}_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json"
+      elif [[ -f "$ROOT_DIR/results/handshake/delay_50ms_${aes_tag}_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json" ]]; then
+        src_file="$ROOT_DIR/results/handshake/delay_50ms_${aes_tag}_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json"
+      elif [[ -f "$ROOT_DIR/results/handshake/delay_50ms_loss_0.5_${aes_tag}_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json" ]]; then
+        src_file="$ROOT_DIR/results/handshake/delay_50ms_loss_0.5_${aes_tag}_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json"
+      elif [[ -f "$ROOT_DIR/results/handshake/delay_100ms_${aes_tag}_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json" ]]; then
+        src_file="$ROOT_DIR/results/handshake/delay_100ms_${aes_tag}_s${SAMPLES}/handshake_${p}_s${SAMPLES}.json"
       fi
       if [[ -n "$src_file" ]]; then
         copy_result "$src_file" "$PROFILE_DIR/handshake" "$aes"
@@ -77,14 +78,15 @@ for aes in on off; do
         for p in "${PORTS[@]}"; do
           # Try to find results in new organized folders first
           src_file=""
-          if [[ -f "$ROOT_DIR/results/bulk/baseline_aes_on_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json" ]]; then
-            src_file="$ROOT_DIR/results/bulk/baseline_aes_on_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json"
-          elif [[ -f "$ROOT_DIR/results/bulk/delay_50ms_aes_on_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json" ]]; then
-            src_file="$ROOT_DIR/results/bulk/delay_50ms_aes_on_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json"
-          elif [[ -f "$ROOT_DIR/results/bulk/delay_50ms_loss_0.5_aes_on_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json" ]]; then
-            src_file="$ROOT_DIR/results/bulk/delay_50ms_loss_0.5_aes_on_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json"
-          elif [[ -f "$ROOT_DIR/results/bulk/delay_100ms_aes_on_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json" ]]; then
-            src_file="$ROOT_DIR/results/bulk/delay_100ms_aes_on_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json"
+          aes_tag="aes_${aes}"
+          if [[ -f "$ROOT_DIR/results/bulk/baseline_${aes_tag}_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json" ]]; then
+            src_file="$ROOT_DIR/results/bulk/baseline_${aes_tag}_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json"
+          elif [[ -f "$ROOT_DIR/results/bulk/delay_50ms_${aes_tag}_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json" ]]; then
+            src_file="$ROOT_DIR/results/bulk/delay_50ms_${aes_tag}_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json"
+          elif [[ -f "$ROOT_DIR/results/bulk/delay_50ms_loss_0.5_${aes_tag}_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json" ]]; then
+            src_file="$ROOT_DIR/results/bulk/delay_50ms_loss_0.5_${aes_tag}_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json"
+          elif [[ -f "$ROOT_DIR/results/bulk/delay_100ms_${aes_tag}_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json" ]]; then
+            src_file="$ROOT_DIR/results/bulk/delay_100ms_${aes_tag}_r${REQUESTS}_p${payload}_c${conc}/bulk_${p}_r${REQUESTS}_p${payload}_c${conc}.json"
           fi
           if [[ -n "$src_file" ]]; then
             copy_result "$src_file" "$PROFILE_DIR/bulk/p${payload}_c${conc}" "$aes"
@@ -100,14 +102,15 @@ for aes in on off; do
         for p in 4431 4432 8443; do
           # Try to find results in new organized folders first
           src_file=""
-          if [[ -f "$ROOT_DIR/results/0rtt/baseline_aes_on_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json" ]]; then
-            src_file="$ROOT_DIR/results/0rtt/baseline_aes_on_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json"
-          elif [[ -f "$ROOT_DIR/results/0rtt/delay_50ms_aes_on_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json" ]]; then
-            src_file="$ROOT_DIR/results/0rtt/delay_50ms_aes_on_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json"
-          elif [[ -f "$ROOT_DIR/results/0rtt/delay_50ms_loss_0.5_aes_on_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json" ]]; then
-            src_file="$ROOT_DIR/results/0rtt/delay_50ms_loss_0.5_aes_on_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json"
-          elif [[ -f "$ROOT_DIR/results/0rtt/delay_100ms_aes_on_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json" ]]; then
-            src_file="$ROOT_DIR/results/0rtt/delay_100ms_aes_on_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json"
+          aes_tag="aes_${aes}"
+          if [[ -f "$ROOT_DIR/results/0rtt/baseline_${aes_tag}_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json" ]]; then
+            src_file="$ROOT_DIR/results/0rtt/baseline_${aes_tag}_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json"
+          elif [[ -f "$ROOT_DIR/results/0rtt/delay_50ms_${aes_tag}_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json" ]]; then
+            src_file="$ROOT_DIR/results/0rtt/delay_50ms_${aes_tag}_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json"
+          elif [[ -f "$ROOT_DIR/results/0rtt/delay_50ms_loss_0.5_${aes_tag}_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json" ]]; then
+            src_file="$ROOT_DIR/results/0rtt/delay_50ms_loss_0.5_${aes_tag}_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json"
+          elif [[ -f "$ROOT_DIR/results/0rtt/delay_100ms_${aes_tag}_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json" ]]; then
+            src_file="$ROOT_DIR/results/0rtt/delay_100ms_${aes_tag}_ed${op}_n${COUNT_0RTT}/simple_${p}_ed${op}_n${COUNT_0RTT}.json"
           fi
           if [[ -n "$src_file" ]]; then
             copy_result "$src_file" "$PROFILE_DIR/0rtt/ed${op}" "$aes"

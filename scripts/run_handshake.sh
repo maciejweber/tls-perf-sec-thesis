@@ -4,7 +4,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST=localhost
 
 if [[ "$(uname)" == "Darwin" ]]; then
-  HOST="host.docker.internal"
+  HOST="localhost"
   DOCKER_NET_ARGS=()
 else
   DOCKER_NET_ARGS=(--network host)
@@ -44,11 +44,13 @@ get_netem_profile() {
 
 # Create organized folder structure
 NETEM_PROFILE=$(get_netem_profile)
-AES_TAG=$([[ "${OPENSSL_ia32cap:-}" == "~0x200000200000000" ]] && echo "aes_off" || echo "aes_on")
+AES_TAG=${FORCE_AES_TAG:-$([[ "${OPENSSL_ia32cap:-}" == "~0x200000200000000" ]] && echo "aes_off" || echo "aes_on")}
 TEST_DIR="$OUTDIR/handshake/${NETEM_PROFILE}_${AES_TAG}_s${SAMPLES}"
 
 # Clean and create test directory
-rm -rf "$TEST_DIR" 2>/dev/null || true
+if [[ "${CLEAN:-1}" == "1" ]]; then
+  rm -rf "$TEST_DIR" 2>/dev/null || true
+fi
 mkdir -p "$TEST_DIR"
 
 # Create series directory for backward compatibility
@@ -128,8 +130,9 @@ measure() {
       ;;
     11112)
       docker exec wolfssl-cli sh -lc '
+        srv_ip=$(getent hosts wolfssl-server-kyber 2>/dev/null | awk "{print \$1}"); srv_ip=${srv_ip:-172.21.0.2};
         time -p sh -c "
-          echo GET / HTTP/1.0 | /usr/local/bin/wolf-client -h wolfssl-server-kyber -p 11112 -v 4 --pqc X25519_ML_KEM_768 >/dev/null 2>&1
+          echo GET / HTTP/1.0 | /usr/local/bin/wolf-client -h ${srv_ip} -p 11112 -v 4 --pqc X25519_ML_KEM_768 -A /certs/ca.pem >/dev/null 2>&1
         " 2>&1 | grep real | awk "{print \$2}"
       '
       ;;
@@ -143,8 +146,12 @@ measure() {
 test_server_availability() {
   local port=$1
   
-
-  return 0
+  # Simple availability check - try to connect to the port
+  if timeout 5 bash -c "echo >/dev/tcp/$HOST/$port" 2>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 echo "==== TLS Handshake Performance (${SAMPLES} samples, Original Docker style) ===="
